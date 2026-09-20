@@ -7,7 +7,10 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "config": {
+        "googleMapsApiKey": "AIzaSyDZ21Sp7chOfcw35j32ZAUyeRuPfaBLWBs"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -16,10 +19,27 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDZ21Sp7chOfcw35j32ZAUyeRuPfaBLWBs"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "43744801-98bd-4d3c-a504-548aa90b444c"
+      }
+    },
+    "owner": "abdullatifpro96",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/43744801-98bd-4d3c-a504-548aa90b444c"
     }
   }
 }

@@ -15,7 +15,9 @@ import {
   TextInput,
   I18nManager,
   Linking,
+  Platform,
 } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { supabase } from './lib/supabase';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -91,32 +93,56 @@ interface CartItem {
   quantity: number;
 }
 
+interface Region {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+}
+
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-export default function App() {
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+function MainApp() {
+  // ALL HOOKS MUST BE DECLARED FIRST - Strict Rules of Hooks
+  const [restaurant, setRestaurant] = useState<Restaurant | null>({
+    id: RESTAURANT_ID,
+    name: 'SmartFlow Restaurant',
+    primary_color: TURQUOISE_COLOR,
+  });
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(STATIC_MOCK_ITEMS);
   const [selectedCategory, setSelectedCategory] = useState('الكل');
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('menu');
   const [offersSection, setOffersSection] = useState('offers');
-  const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('delivery');
+  const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('pickup');
   const [selectedBranch, setSelectedBranch] = useState('فرع الصفا');
   const [language, setLanguage] = useState<'ar' | 'en'>('ar');
   const [userLocation, setUserLocation] = useState(DEFAULT_COORDS);
   const [locationLoading, setLocationLoading] = useState(false);
   const [searchLocation, setSearchLocation] = useState('');
   const [showLocationModal, setShowLocationModal] = useState(false);
+  const [mapRegion, setMapRegion] = useState<Region | null>(null);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [isAppReady, setIsAppReady] = useState(false);
   const hasRequestedPermissions = useRef(false);
+  const insets = useSafeAreaInsets();
 
   const primaryColor = TURQUOISE_COLOR;
   const isRTL = language === 'ar';
 
+  // ALL USEEFFECT HOOKS MUST BE DECLARED BEFORE ANY CONDITIONAL RETURNS
   useEffect(() => {
-    fetchData();
-    requestPermissions();
+    // fetchData();
+    // requestPermissions();
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsAppReady(true);
+    }, 2000);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -129,6 +155,44 @@ export default function App() {
       I18nManager.forceRTL(false);
     }
   }, [language]);
+
+  useEffect(() => {
+    if (showLocationModal) {
+      setLocationLoading(true);
+      (async () => {
+        try {
+          let { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== 'granted') {
+            console.log('Location permission denied');
+            setLocationLoading(false);
+            return;
+          }
+          let location = await Location.getCurrentPositionAsync({});
+          setMapRegion({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          });
+          setUserLocation({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          });
+          setLocationLoading(false);
+        } catch (error) {
+          console.error('Error getting location:', error);
+          // Fallback to default coordinates if location fails
+          setMapRegion({
+            latitude: DEFAULT_COORDS.latitude,
+            longitude: DEFAULT_COORDS.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          });
+          setLocationLoading(false);
+        }
+      })();
+    }
+  }, [showLocationModal]);
 
   const requestPermissions = async () => {
     if (!hasRequestedPermissions.current) {
@@ -646,7 +710,10 @@ export default function App() {
             deliveryMode === 'delivery' && styles.toggleOptionActive,
             deliveryMode === 'delivery' && { backgroundColor: primaryColor },
           ]}
-          onPress={() => setDeliveryMode('delivery')}
+          onPress={() => {
+            setDeliveryMode('delivery');
+            setShowLocationModal(true);
+          }}
         >
           <Ionicons 
             name="car" 
@@ -686,44 +753,29 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      {/* Location Selector */}
-      <TouchableOpacity 
-        style={styles.locationSelector}
-        onPress={() => setShowLocationModal(true)}
-      >
-        <View style={[styles.locationContent, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <Ionicons name="location-outline" size={20} color={primaryColor} />
-          <Text style={[styles.locationText, { textAlign: isRTL ? 'right' : 'left' }]}>
-            {deliveryMode === 'delivery' ? getText('موقع التوصيل', 'Delivery Location') : selectedBranch}
+      {/* Delivery Address Display */}
+      {deliveryMode === 'delivery' && deliveryAddress && (
+        <View style={[styles.deliveryAddressContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+          <Ionicons name="location" size={16} color={primaryColor} />
+          <Text style={[styles.deliveryAddressText, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={1}>
+            {deliveryAddress}
           </Text>
-          <Ionicons name="chevron-down" size={20} color={primaryColor} />
         </View>
-      </TouchableOpacity>
+      )}
+
     </View>
   );
 
-  if (loading) {
+  // FINAL CONDITIONAL RETURNS - Must be after all hooks and functions
+  if (!isAppReady) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <StatusBar style="light" />
-        <ActivityIndicator size="large" color={primaryColor} />
-        <Text style={styles.loadingText}>{getText('جاري التحميل...', 'Loading...')}</Text>
-      </SafeAreaView>
-    );
-  }
-
-  if (error) {
-    return (
-      <SafeAreaView style={styles.errorContainer}>
-        <StatusBar style="light" />
-        <Text style={[styles.errorText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('حدث خطأ:', 'Error occurred:')} {error}</Text>
-        <TouchableOpacity 
-          style={[styles.retryButton, { backgroundColor: primaryColor }]}
-          onPress={fetchData}
-        >
-          <Text style={styles.retryButtonText}>{getText('إعادة المحاولة', 'Retry')}</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
+      <View style={styles.splashContainer}>
+        <View style={styles.splashContent}>
+          <Ionicons name="restaurant" size={80} color={primaryColor} />
+          <Text style={styles.splashText}>SmartFlow</Text>
+          <ActivityIndicator size="large" color={primaryColor} style={styles.splashLoader} />
+        </View>
+      </View>
     );
   }
 
@@ -756,184 +808,117 @@ export default function App() {
       <Modal
         visible={showLocationModal}
         animationType="slide"
-        transparent={true}
+        transparent={false}
         onRequestClose={() => setShowLocationModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={[styles.modalHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-              <Text style={[styles.modalTitle, { textAlign: isRTL ? 'right' : 'left' }]}>
-                {deliveryMode === 'delivery' ? getText('حدد موقع التوصيل', 'Set Delivery Location') : getText('اختر الفرع', 'Select Branch')}
-              </Text>
-              <TouchableOpacity onPress={() => setShowLocationModal(false)}>
-                <Ionicons name="close" size={24} color="#64748B" />
-              </TouchableOpacity>
-            </View>
-            
-            {deliveryMode === 'delivery' ? (
-              /* Delivery Mode - Show Map with Google Maps forced */
-              <View style={styles.mapContainer}>
-                {/* Search Location Input */}
-                <View style={[styles.searchLocationContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                  <Ionicons name="search" size={20} color="#64748B" />
-                  <TextInput
-                    style={[styles.searchLocationInput, { textAlign: isRTL ? 'right' : 'left' }]}
-                    placeholder={getText('حدد موقعك', 'Search Location')}
-                    placeholderTextColor="#94A3B8"
-                    value={searchLocation}
-                    onChangeText={setSearchLocation}
-                  />
-                </View>
-
-                {/* Map View with Google Maps forced */}
-                {locationLoading ? (
-                  <View style={styles.mapLoadingContainer}>
-                    <ActivityIndicator size="large" color={primaryColor} />
-                    <Text style={styles.mapLoadingText}>{getText('جاري تحديد موقعك...', 'Locating you...')}</Text>
-                  </View>
-                ) : (
-                  <MapView
-                    style={styles.mapView}
-                    provider={PROVIDER_GOOGLE}
-                    initialRegion={{
-                      latitude: userLocation.latitude,
-                      longitude: userLocation.longitude,
-                      latitudeDelta: 0.0922,
-                      longitudeDelta: 0.0421,
-                    }}
-                    region={{
-                      latitude: userLocation.latitude,
-                      longitude: userLocation.longitude,
-                      latitudeDelta: 0.0922,
-                      longitudeDelta: 0.0421,
-                    }}
-                  >
-                    <Marker
-                      coordinate={{
-                        latitude: userLocation.latitude,
-                        longitude: userLocation.longitude,
-                      }}
-                      title={getText('موقعك الحالي', 'Your Current Location')}
-                      description={getText('موقع التوصيل', 'Delivery Location')}
-                    >
-                      <View style={styles.customMarker}>
-                        <View style={[styles.markerPin, { backgroundColor: primaryColor }]}>
-                          <Ionicons name="location" size={24} color="#FFFFFF" />
-                        </View>
-                        <View style={[styles.markerShadow, { backgroundColor: primaryColor }]} />
-                      </View>
-                    </Marker>
-                  </MapView>
-                )}
-
-                {/* Auto-Locate Button */}
-                <TouchableOpacity 
-                  style={[styles.autoLocateButton, { backgroundColor: primaryColor }]}
-                  onPress={handleAutoLocate}
-                >
-                  <Ionicons name="navigate" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              /* Pickup Mode - Show Branches */
-              <View style={styles.branchList}>
-                {/* Branch 1: الصفا */}
-                <TouchableOpacity 
-                  style={[
-                    styles.branchItem,
-                    selectedBranch === 'فرع الصفا' && styles.branchItemActive,
-                  ]}
-                  onPress={() => {
-                    setSelectedBranch('فرع الصفا');
-                    setShowLocationModal(false);
-                  }}
-                >
-                  <View style={[styles.branchIndicator, selectedBranch === 'فرع الصفا' && { backgroundColor: primaryColor }]} />
-                  <View style={[styles.branchInfo, isRTL ? { marginRight: 0, marginLeft: 12 } : { marginRight: 12, marginLeft: 0 }]}>
-                    <Text style={[styles.branchName, { textAlign: isRTL ? 'right' : 'left' }]}>فرع الصفا</Text>
-                    <Text style={[styles.branchAddress, { textAlign: isRTL ? 'right' : 'left' }]}>شارع الامير سعود الفيصل</Text>
-                    <View style={[styles.branchDetails, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                      <Text style={styles.branchDetailText}>08:00 ص - 12:00 م</Text>
-                      <Text style={styles.branchDetailText}>•</Text>
-                      <Text style={styles.branchDetailText}>2.5 كم</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.branchActions, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                    <TouchableOpacity 
-                      style={styles.branchActionButton}
-                      onPress={() => Linking.openURL('https://maps.google.com')}
-                    >
-                      <Ionicons name="map" size={20} color={primaryColor} />
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.branchActionButton}
-                      onPress={() => {
-                        RNAlert.alert(
-                          getText('ساعات العمل', 'Working Hours'),
-                          getText('08:00 ص - 12:00 م', '08:00 AM - 12:00 PM'),
-                          [{ text: getText('حسناً', 'OK') }]
-                        );
-                      }}
-                    >
-                      <Ionicons name="time" size={20} color={primaryColor} />
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-
-                {/* Branch 2: النسيم */}
-                <TouchableOpacity 
-                  style={[
-                    styles.branchItem,
-                    selectedBranch === 'فرع النسيم' && styles.branchItemActive,
-                  ]}
-                  onPress={() => {
-                    setSelectedBranch('فرع النسيم');
-                    setShowLocationModal(false);
-                  }}
-                >
-                  <View style={[styles.branchIndicator, selectedBranch === 'فرع النسيم' && { backgroundColor: primaryColor }]} />
-                  <View style={[styles.branchInfo, isRTL ? { marginRight: 0, marginLeft: 12 } : { marginRight: 12, marginLeft: 0 }]}>
-                    <Text style={[styles.branchName, { textAlign: isRTL ? 'right' : 'left' }]}>فرع النسيم</Text>
-                    <Text style={[styles.branchAddress, { textAlign: isRTL ? 'right' : 'left' }]}>شارع ام المومنين حبيبة</Text>
-                    <View style={[styles.branchDetails, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                      <Text style={styles.branchDetailText}>10:00 ص - 11:30 م</Text>
-                      <Text style={styles.branchDetailText}>•</Text>
-                      <Text style={styles.branchDetailText}>5.0 كم</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.branchActions, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                    <TouchableOpacity 
-                      style={styles.branchActionButton}
-                      onPress={() => Linking.openURL('https://maps.google.com')}
-                    >
-                      <Ionicons name="map" size={20} color={primaryColor} />
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.branchActionButton}
-                      onPress={() => {
-                        RNAlert.alert(
-                          getText('ساعات العمل', 'Working Hours'),
-                          getText('10:00 ص - 11:30 م', '10:00 AM - 11:30 PM'),
-                          [{ text: getText('حسناً', 'OK') }]
-                        );
-                      }}
-                    >
-                      <Ionicons name="time" size={20} color={primaryColor} />
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Browse Menu Button (Delivery mode only) */}
-            {deliveryMode === 'delivery' && (
-              <TouchableOpacity 
-                style={[styles.browseMenuButton, { backgroundColor: primaryColor }]}
-                onPress={() => setShowLocationModal(false)}
+        <View style={styles.mapModalContainer}>
+          <StatusBar style="dark" />
+          
+          {/* Top Section - Map (65% height) */}
+          <View style={styles.mapTopSection}>
+            {/* Map View with Google Maps forced */}
+            {mapRegion ? (
+              <MapView
+                provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+                style={{ flex: 1 }}
+                region={mapRegion}
+                showsUserLocation={true}
+                onRegionChangeComplete={(region) => setMapRegion(region)}
               >
-                <Text style={styles.browseMenuButtonText}>{getText('تصفح القائمة', 'Browse Menu')}</Text>
-              </TouchableOpacity>
+                <Marker
+                  coordinate={mapRegion}
+                  title={getText('موقعك الحالي', 'Your Current Location')}
+                  description={getText('موقع التوصيل', 'Delivery Location')}
+                  draggable
+                  onDragEnd={(e) => {
+                    setMapRegion({
+                      ...mapRegion,
+                      latitude: e.nativeEvent.coordinate.latitude,
+                      longitude: e.nativeEvent.coordinate.longitude,
+                    });
+                  }}
+                >
+                  <View style={styles.customMarker}>
+                    <View style={[styles.markerPin, { backgroundColor: primaryColor }]}>
+                      <Ionicons name="location" size={24} color="#FFFFFF" />
+                    </View>
+                    <View style={[styles.markerShadow, { backgroundColor: primaryColor }]} />
+                  </View>
+                </Marker>
+              </MapView>
+            ) : (
+              <View style={styles.mapLoadingContainer}>
+                <ActivityIndicator size="large" color={primaryColor} />
+                <Text style={styles.mapLoadingText}>{getText('جاري تحميل الخريطة...', 'Loading map...')}</Text>
+              </View>
             )}
+
+            {/* Floating Back Button - Top Right Corner */}
+            <TouchableOpacity 
+              style={[styles.mapBackButton, { top: insets.top + 16, right: 16 }]}
+              onPress={() => setShowLocationModal(false)}
+            >
+              <Ionicons 
+                name={isRTL ? "arrow-forward" : "arrow-back"} 
+                size={24} 
+                color="#FFFFFF" 
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Bottom Section - Bottom Sheet (35% height) */}
+          <View style={styles.mapBottomSheet}>
+            {/* Title Text */}
+            <Text style={styles.mapBottomSheetTitle}>
+              {getText('حدد موقعك', 'Select Your Location')}
+            </Text>
+
+            {/* Search Bar */}
+            <View style={[styles.mapSearchBar, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+              <Ionicons name="search" size={20} color="#64748B" />
+              <TextInput
+                style={[styles.mapSearchInput, { textAlign: isRTL ? 'right' : 'left' }]}
+                placeholder={getText('بحث...', 'Search...')}
+                placeholderTextColor="#94A3B8"
+                value={searchLocation}
+                onChangeText={setSearchLocation}
+              />
+            </View>
+
+            {/* Action Button */}
+            <TouchableOpacity 
+              style={styles.mapActionButton}
+              onPress={async () => {
+                if (mapRegion) {
+                  try {
+                    const addressResults = await Location.reverseGeocodeAsync({
+                      latitude: mapRegion.latitude,
+                      longitude: mapRegion.longitude,
+                    });
+                    if (addressResults && addressResults.length > 0) {
+                      const address = addressResults[0];
+                      const formattedAddress = [
+                        address.street,
+                        address.city,
+                        address.region,
+                        address.country,
+                      ].filter(Boolean).join(', ') || 'تم تحديد الموقع من الخريطة';
+                      setDeliveryAddress(formattedAddress);
+                    } else {
+                      setDeliveryAddress('تم تحديد الموقع من الخريطة');
+                    }
+                  } catch (error) {
+                    console.error('Error reverse geocoding:', error);
+                    setDeliveryAddress('تم تحديد الموقع من الخريطة');
+                  }
+                }
+                setShowLocationModal(false);
+              }}
+            >
+              <Text style={styles.mapActionButtonText}>
+                {getText('تعيين العنوان', 'Set Address')}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -979,16 +964,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  orderSelectionContainer: {
-    flex: 1,
+  menuHeader: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  deliveryAddressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     backgroundColor: '#F8F9FA',
-    padding: 16,
+    gap: 8,
+  },
+  deliveryAddressText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1E293B',
   },
   deliveryToggle: {
     backgroundColor: '#F8F9FA',
     borderRadius: 16,
     padding: 6,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   toggleOption: {
     flex: 1,
@@ -1014,120 +1013,15 @@ const styles = StyleSheet.create({
   toggleOptionTextActive: {
     color: '#FFFFFF',
   },
-  deliveryFlow: {
-    flex: 1,
-  },
-  pickupFlow: {
-    flex: 1,
-  },
-  mapContainer: {
-    height: 400,
-    borderRadius: 16,
-    marginBottom: 20,
-    overflow: 'hidden',
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  searchLocationContainer: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    right: 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    zIndex: 10,
-  },
-  searchLocationInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#1E293B',
-  },
-  mapView: {
-    width: '100%',
-    height: '100%',
-  },
-  mapLoadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-  },
-  mapLoadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#64748B',
-  },
-  customMarker: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  markerPin: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  markerShadow: {
-    position: 'absolute',
-    bottom: -8,
-    width: 24,
-    height: 12,
-    borderRadius: 12,
-    opacity: 0.3,
-  },
-  autoLocateButton: {
-    position: 'absolute',
-    bottom: 16,
-    left: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  browseMenuButton: {
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  browseMenuButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
   branchList: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     gap: 16,
-    marginBottom: 20,
   },
-  branchCard: {
+  branchItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 16,
@@ -1139,12 +1033,8 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 4,
   },
-  branchCardActive: {
+  branchItemActive: {
     borderColor: '#E9ECEF',
-  },
-  branchSelectionArea: {
-    alignItems: 'center',
-    marginBottom: 12,
   },
   branchIndicator: {
     width: 16,
@@ -1166,6 +1056,14 @@ const styles = StyleSheet.create({
     color: '#64748B',
     marginBottom: 4,
   },
+  branchDetails: {
+    gap: 8,
+    marginTop: 4,
+  },
+  branchDetailText: {
+    fontSize: 12,
+    color: '#64748B',
+  },
   branchStatus: {
     fontSize: 12,
     fontWeight: '600',
@@ -1181,41 +1079,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  confirmBranchButton: {
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  confirmBranchButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  simpleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    paddingTop: 40,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
-  },
-  simpleHeaderTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1E293B',
-    marginHorizontal: 12,
-  },
-  headerSpacer: {
-    width: 24,
   },
   tabContent: {
     flex: 1,
@@ -1616,4 +1479,143 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94A3B8',
   },
+  // Splash Screen Styles
+  splashContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  splashContent: {
+    alignItems: 'center',
+  },
+  splashText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1E293B',
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  splashLoader: {
+    marginTop: 16,
+  },
+  // Map Modal Styles
+  mapModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  mapTopSection: {
+    flex: 0.65,
+    position: 'relative',
+  },
+  mapBackButton: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  mapBottomSheet: {
+    flex: 0.35,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  mapBottomSheetTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1E293B',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  mapSearchBar: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  mapSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1E293B',
+  },
+  mapActionButton: {
+    backgroundColor: '#1E293B',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  mapActionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  // Legacy map styles for marker and loading
+  mapView: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  mapLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+  },
+  mapLoadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#64748B',
+  },
+  customMarker: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markerPin: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  markerShadow: {
+    position: 'absolute',
+    bottom: -8,
+    width: 24,
+    height: 12,
+    borderRadius: 12,
+    opacity: 0.3,
+  },
 });
+
+// Root component with SafeAreaProvider
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <MainApp />
+    </SafeAreaProvider>
+  );
+}
