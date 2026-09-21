@@ -126,6 +126,10 @@ function MainApp() {
   const [mapRegion, setMapRegion] = useState<Region | null>(null);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [isAppReady, setIsAppReady] = useState(false);
+  const [isProfileModalVisible, setIsProfileModalVisible] = useState(false);
+  const [isPrivacyModalVisible, setIsPrivacyModalVisible] = useState(false);
+  const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
+  const [gender, setGender] = useState('ذكر');
   const hasRequestedPermissions = useRef(false);
   const insets = useSafeAreaInsets();
 
@@ -656,40 +660,37 @@ function MainApp() {
 
       {/* Settings List */}
       <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+        <TouchableOpacity 
+          style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
+          onPress={() => setIsProfileModalVisible(true)}
+        >
           <Ionicons name="person-outline" size={24} color="#64748B" />
           <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('الملف الشخصي', 'Profile')}</Text>
           <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <Ionicons name="call-outline" size={24} color="#64748B" />
-          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('اتصل بنا', 'Contact Us')}</Text>
+        <TouchableOpacity 
+          style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
+          onPress={() => setIsPrivacyModalVisible(true)}
+        >
+          <Ionicons name="lock-closed-outline" size={24} color="#64748B" />
+          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('سياسة الخصوصية', 'Privacy Policy')}</Text>
           <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <Ionicons name="location-outline" size={24} color="#64748B" />
-          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('العناوين', 'Addresses')}</Text>
+        <TouchableOpacity 
+          style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
+          onPress={() => setIsTermsModalVisible(true)}
+        >
+          <Ionicons name="document-text-outline" size={24} color="#64748B" />
+          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('الشروط والأحكام', 'Terms & Conditions')}</Text>
           <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <Ionicons name="card-outline" size={24} color="#64748B" />
-          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('طرق الدفع', 'Payment Methods')}</Text>
-          <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <Ionicons name="notifications-outline" size={24} color="#64748B" />
-          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('الإشعارات', 'Notifications')}</Text>
-          <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <Ionicons name="help-circle-outline" size={24} color="#64748B" />
-          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('المساعدة والدعم', 'Help & Support')}</Text>
-          <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <Ionicons name="settings-outline" size={24} color="#64748B" />
-          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('الإعدادات', 'Settings')}</Text>
-          <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
+        
+        {/* Logout Button */}
+        <TouchableOpacity 
+          style={[styles.logoutButton, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
+        >
+          <Ionicons name="log-out-outline" size={24} color="#DC3545" />
+          <Text style={styles.logoutButtonText}>{getText('تسجيل الخروج', 'Logout')}</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -921,6 +922,178 @@ function MainApp() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* Profile Modal */}
+      <Modal
+        visible={isProfileModalVisible}
+        animationType="slide"
+        onRequestClose={() => setIsProfileModalVisible(false)}
+      >
+        <SafeAreaView style={styles.profileModalContainer}>
+          <StatusBar style="dark" />
+          
+          {/* Header */}
+          <View style={[styles.profileModalHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+            <TouchableOpacity onPress={() => setIsProfileModalVisible(false)}>
+              <Ionicons name={isRTL ? 'chevron-forward' : 'chevron-back'} size={24} color="#1E293B" />
+            </TouchableOpacity>
+            <Text style={styles.profileModalTitle}>{getText('تعديل الملف الشخصي', 'Edit Profile')}</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <ScrollView style={styles.profileModalContent} showsVerticalScrollIndicator={false}>
+            {/* Subtitle Banner */}
+            <View style={styles.profileSubtitleBanner}>
+              <Text style={styles.profileSubtitleText}>
+                {getText('أهلاً! ابق ملفك الشخصي محدثاً لنستطيع خدمتك بأفضل شكل ممكن', 'Welcome! Keep your profile updated so we can serve you better')}
+              </Text>
+            </View>
+
+            {/* Form Fields */}
+            <View style={styles.profileForm}>
+              <View style={styles.profileField}>
+                <Text style={styles.profileFieldLabel}>{getText('اسم', 'Name')}</Text>
+                <TextInput
+                  style={[styles.profileInput, { textAlign: 'right', writingDirection: 'rtl' }]}
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+
+              <View style={styles.profileField}>
+                <Text style={styles.profileFieldLabel}>{getText('رقم الجوال', 'Phone')}</Text>
+                <TextInput
+                  style={[styles.profileInput, styles.profileInputDisabled, { textAlign: 'right', writingDirection: 'rtl' }]}
+                  value="+966 50 123 4567"
+                  editable={false}
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+
+              <View style={styles.profileField}>
+                <Text style={styles.profileFieldLabel}>{getText('الايميل', 'Email')}</Text>
+                <TextInput
+                  style={[styles.profileInput, { textAlign: 'right', writingDirection: 'rtl' }]}
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+
+              {/* Gender Toggle */}
+              <View style={styles.profileField}>
+                <Text style={styles.profileFieldLabel}>{getText('الجنس', 'Gender')}</Text>
+                <View style={[styles.genderToggle, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                  <TouchableOpacity
+                    style={[
+                      styles.genderButton,
+                      gender === 'ذكر' && styles.genderButtonActive,
+                    ]}
+                    onPress={() => setGender('ذكر')}
+                  >
+                    <Text
+                      style={[
+                        styles.genderButtonText,
+                        gender === 'ذكر' && styles.genderButtonTextActive,
+                      ]}
+                    >
+                      {getText('ذكر', 'Male')}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.genderButton,
+                      gender === 'أنثى' && styles.genderButtonActive,
+                    ]}
+                    onPress={() => setGender('أنثى')}
+                  >
+                    <Text
+                      style={[
+                        styles.genderButtonText,
+                        gender === 'أنثى' && styles.genderButtonTextActive,
+                      ]}
+                    >
+                      {getText('أنثى', 'Female')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Delete Account Section */}
+              <View style={[styles.deleteAccountSection, { alignItems: 'center', justifyContent: 'center' }]}>
+                <TouchableOpacity style={[styles.deleteAccountRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                  <Ionicons name="trash-outline" size={20} color="#DC3545" />
+                  <Text style={styles.deleteAccountText}>{getText('حذف الحساب', 'Delete Account')}</Text>
+                </TouchableOpacity>
+                <Text style={[styles.deleteAccountSubtext, { textAlign: 'center' }]}>
+                  {getText('سيتم حذف البيانات الشخصية وتاريخ الطلبات ورصيد المحفظة.', 'Personal data, order history, and wallet balance will be deleted.')}
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+
+          {/* Footer Button */}
+          <View style={styles.profileModalFooter}>
+            <TouchableOpacity
+              style={styles.profileConfirmButton}
+              onPress={() => setIsProfileModalVisible(false)}
+            >
+              <Text style={styles.profileConfirmButtonText}>{getText('تأكيد', 'Confirm')}</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Privacy Policy Modal */}
+      <Modal
+        visible={isPrivacyModalVisible}
+        animationType="slide"
+        onRequestClose={() => setIsPrivacyModalVisible(false)}
+      >
+        <SafeAreaView style={styles.policyModalContainer}>
+          <StatusBar style="dark" />
+          
+          {/* Header */}
+          <View style={[styles.policyModalHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+            <TouchableOpacity onPress={() => setIsPrivacyModalVisible(false)}>
+              <Ionicons name={isRTL ? 'chevron-forward' : 'chevron-back'} size={24} color="#1E293B" />
+            </TouchableOpacity>
+            <Text style={styles.policyModalTitle}>{getText('سياسة الخصوصية', 'Privacy Policy')}</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <ScrollView style={styles.policyModalContent} showsVerticalScrollIndicator={false}>
+            <Text style={[styles.policyText, { textAlign: 'right', writingDirection: 'rtl' }]}>
+              {getText('نحن في شركة SmartFlow نولي خصوصيتك أهمية بالغة.\n\nجمع البيانات: نقوم بجمع معلوماتك الأساسية (الاسم، رقم الجوال، الموقع الدقيق) لضمان توصيل الطلبات بكفاءة.\n\nاستخدام البيانات: تُستخدم بياناتك حصرياً لتحسين تجربة المستخدم ومعالجة الطلبات داخل منصة SmartFlow متعددة المستأجرين.\n\nحماية البيانات: نلتزم التزاماً تاماً بعدم مشاركة أو بيع بياناتك لأي أطراف ثالثة لأغراض تسويقية.\n\nحذف الحساب: يحق للمستخدم طلب حذف حسابه وبياناته نهائياً في أي وقت من خلال إعدادات الملف الشخصي.',
+              'At SmartFlow, we take your privacy seriously.\n\nData Collection: We collect your basic information (name, phone number, precise location) to ensure efficient order delivery.\n\nData Usage: Your data is used exclusively to improve user experience and process orders within the SmartFlow multi-tenant platform.\n\nData Protection: We are fully committed to not sharing or selling your data to any third parties for marketing purposes.\n\nAccount Deletion: Users have the right to request permanent deletion of their account and data at any time through profile settings.')}
+            </Text>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Terms & Conditions Modal */}
+      <Modal
+        visible={isTermsModalVisible}
+        animationType="slide"
+        onRequestClose={() => setIsTermsModalVisible(false)}
+      >
+        <SafeAreaView style={styles.policyModalContainer}>
+          <StatusBar style="dark" />
+          
+          {/* Header */}
+          <View style={[styles.policyModalHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+            <TouchableOpacity onPress={() => setIsTermsModalVisible(false)}>
+              <Ionicons name={isRTL ? 'chevron-forward' : 'chevron-back'} size={24} color="#1E293B" />
+            </TouchableOpacity>
+            <Text style={styles.policyModalTitle}>{getText('الشروط والأحكام', 'Terms & Conditions')}</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <ScrollView style={styles.policyModalContent} showsVerticalScrollIndicator={false}>
+            <Text style={[styles.policyText, { textAlign: 'right', writingDirection: 'rtl' }]}>
+              {getText('مرحباً بك في منصة SmartFlow. باستخدامك للتطبيق، فإنك توافق على الشروط التالية:\n\nوصف الخدمة: تطبيق SmartFlow هو منصة تقنية رائدة تربط بين العملاء والمطاعم لتقديم خدمات الطلب والتوصيل السريع.\n\nآلية الدفع: تعتمد الخدمة حالياً على خيار (الدفع عند الاستلام) أو (الدفع في الفرع). يلتزم العميل التزاماً كاملاً بدفع قيمة الطلب للمندوب أو لمقدم الخدمة.\n\nإخلاء المسؤولية: شركة SmartFlow غير مسؤولة عن جودة أو سلامة الأطعمة المقدمة من المطاعم، ويقتصر دورنا التقني على تسهيل وإدارة عملية الطلب والتوصيل.\n\nيحق لـ SmartFlow تحديث أو تعديل هذه الشروط في أي وقت، ويعتبر استمرارك في استخدام التطبيق موافقة صريحة عليها.',
+              'Welcome to the SmartFlow platform. By using the app, you agree to the following terms:\n\nService Description: The SmartFlow app is a leading technology platform connecting customers with restaurants to provide ordering and fast delivery services.\n\nPayment Mechanism: The service currently relies on (Cash on Delivery) or (Payment at Branch) options. The customer is fully committed to paying the order value to the delivery person or service provider.\n\nDisclaimer: SmartFlow is not responsible for the quality or safety of food provided by restaurants, and our technical role is limited to facilitating and managing the ordering and delivery process.\n\nSmartFlow reserves the right to update or modify these terms at any time, and continued use of the app is considered explicit acceptance of them.')}
+            </Text>
+          </ScrollView>
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
@@ -1608,6 +1781,172 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 12,
     opacity: 0.3,
+  },
+  // Profile Modal Styles
+  profileModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  profileModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  profileModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  profileModalContent: {
+    flex: 1,
+  },
+  profileSubtitleBanner: {
+    backgroundColor: '#F8F9FA',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    margin: 16,
+    borderRadius: 8,
+  },
+  profileSubtitleText: {
+    fontSize: 14,
+    color: '#64748B',
+    lineHeight: 20,
+  },
+  profileForm: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  profileField: {
+    marginBottom: 24,
+  },
+  profileFieldLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 8,
+  },
+  profileInput: {
+    fontSize: 16,
+    color: '#1E293B',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    paddingBottom: 12,
+  },
+  profileInputDisabled: {
+    backgroundColor: '#F8F9FA',
+    color: '#94A3B8',
+  },
+  genderToggle: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  genderButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+  },
+  genderButtonActive: {
+    backgroundColor: '#00B4D8',
+    borderColor: '#00B4D8',
+  },
+  genderButtonText: {
+    fontSize: 14,
+    color: '#64748B',
+  },
+  genderButtonTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  deleteAccountSection: {
+    marginTop: 32,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  deleteAccountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
+  },
+  deleteAccountText: {
+    fontSize: 16,
+    color: '#DC3545',
+    fontWeight: '600',
+  },
+  deleteAccountSubtext: {
+    fontSize: 12,
+    color: '#94A3B8',
+    lineHeight: 16,
+  },
+  profileModalFooter: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  profileConfirmButton: {
+    backgroundColor: '#DC3545',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  profileConfirmButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  // Policy Modal Styles (Privacy & Terms)
+  policyModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  policyModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  policyModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  policyModalContent: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  policyText: {
+    fontSize: 14,
+    color: '#1E293B',
+    lineHeight: 24,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    paddingVertical: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  logoutButtonText: {
+    fontSize: 16,
+    color: '#DC3545',
+    fontWeight: '600',
   },
 });
 
