@@ -16,7 +16,13 @@ import {
   I18nManager,
   Linking,
   Platform,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
@@ -55,7 +61,9 @@ interface MenuItem {
   title?: string;
   name?: string;
   name_ar?: string;
+  name_en?: string;
   description: string;
+  description_en?: string;
   price: number;
   category?: string;
   category_id?: string;
@@ -67,6 +75,7 @@ interface CartItem {
   title?: string;
   name?: string;
   name_ar?: string;
+  name_en?: string;
   price: number;
   quantity: number;
 }
@@ -263,7 +272,7 @@ export default function CustomerScreen() {
         .eq('user_id', activeRestaurantId);
 
       if (!catError && catData) {
-        setCategories([{ id: 'all', name: 'الكل' }, ...catData]);
+        setCategories([{ id: 'all', name: 'الكل', name_en: 'All' }, ...catData]);
       }
 
       // Fetch menu items
@@ -344,6 +353,9 @@ export default function CustomerScreen() {
 
   const renderCategory = (category: Category) => {
     const isActive = selectedCategory === category.id;
+    const categoryName = language === 'en' 
+      ? (category.name_en || category.name || category.title || category.name_ar || 'بدون اسم')
+      : (category.name || category.title || category.name_ar || 'بدون اسم');
 
     return (
       <TouchableOpacity
@@ -351,6 +363,7 @@ export default function CustomerScreen() {
         style={[
           styles.categoryItem,
           isActive && styles.categoryItemActive,
+          { transform: [{ scaleX: isRTL ? -1 : 1 }] }
         ]}
         onPress={() => setSelectedCategory(category.id)}
       >
@@ -360,7 +373,7 @@ export default function CustomerScreen() {
             isActive && { color: primaryColor },
           ]}
         >
-          {category.name || category.title || category.name_ar || 'بدون اسم'}
+          {categoryName}
         </Text>
       </TouchableOpacity>
     );
@@ -368,20 +381,26 @@ export default function CustomerScreen() {
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
     const quantity = getItemQuantity(item.id);
+    const itemName = language === 'en' 
+      ? (item.name_en || item.name || item.name_ar || item.title)
+      : (item.name || item.name_ar || item.title);
+    const itemDesc = language === 'en'
+      ? (item.description_en || item.description)
+      : (item.description);
 
     return (
       <View style={[styles.menuItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
         <Image source={{ uri: item.image_url }} style={styles.menuItemImage} />
         <View style={[styles.menuItemContent, isRTL ? { marginRight: 0, marginLeft: 12 } : { marginRight: 12, marginLeft: 0 }]}>
-          <Text style={[styles.menuItemTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{item.name || item.name_ar || item.title}</Text>
+          <Text style={[styles.menuItemTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{itemName}</Text>
           <Text style={[styles.menuItemDescription, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={2}>
-            {item.description}
+            {itemDesc}
           </Text>
           <Text style={[styles.menuItemPrice, { color: primaryColor, textAlign: isRTL ? 'right' : 'left' }]}>
-            {item.price} ر.س
+            {item.price} {getText('ر.س', 'SAR')}
           </Text>
         </View>
-        <View style={styles.quantitySelector}>
+        <View style={[styles.quantitySelector, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
           <TouchableOpacity
             style={styles.quantityButton}
             onPress={() => addToCart(item)}
@@ -389,7 +408,7 @@ export default function CustomerScreen() {
             <Ionicons name="add" size={20} color={primaryColor} />
           </TouchableOpacity>
           <Text style={[styles.quantityText, { color: primaryColor }]}>
-            {quantity > 0 ? `${item.price} ر.س` : `${item.price} ر.س`}
+            {quantity > 0 ? quantity : 0}
           </Text>
           <TouchableOpacity
             style={styles.quantityButton}
@@ -439,7 +458,8 @@ export default function CustomerScreen() {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[styles.categoriesList, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
+          contentContainerStyle={[styles.categoriesList, { flexDirection: 'row' }]}
+          style={{ transform: [{ scaleX: isRTL ? -1 : 1 }] }}
         >
           {categories.map(renderCategory)}
         </ScrollView>
@@ -593,62 +613,49 @@ export default function CustomerScreen() {
     </View>
   );
 
+  const handleLanguageChange = (lang: 'ar' | 'en') => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setLanguage(lang);
+  };
+
   const renderMoreTab = () => (
     <View style={styles.moreContainer}>
-      {/* Language Toggle */}
-      <View style={[styles.languageToggle, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-        <TouchableOpacity
-          style={[
-            styles.languageButton,
-            language === 'ar' && { backgroundColor: primaryColor },
-          ]}
-          onPress={() => setLanguage('ar')}
-        >
-          <Text
-            style={[
-              styles.languageText,
-              language === 'ar' && styles.languageTextActive,
-            ]}
-          >
-            العربية
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.languageButton,
-            language === 'en' && { backgroundColor: primaryColor },
-          ]}
-          onPress={() => setLanguage('en')}
-        >
-          <Text
-            style={[
-              styles.languageText,
-              language === 'en' && styles.languageTextActive,
-            ]}
-          >
-            English
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Social Icons - TikTok and WhatsApp ONLY */}
-      <View style={styles.socialIcons}>
-        <TouchableOpacity
-          style={styles.socialButton}
-          onPress={() => Linking.openURL('https://tiktok.com')}
-        >
-          <FontAwesome5 name="tiktok" size={24} color={primaryColor} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.socialButton}
-          onPress={() => Linking.openURL('https://wa.me/1234567890')}
-        >
-          <FontAwesome5 name="whatsapp" size={24} color={primaryColor} />
-        </TouchableOpacity>
-      </View>
-
+      <Text style={[styles.sectionTitle, { textAlign: isRTL ? 'right' : 'left', marginHorizontal: 16, marginTop: 16, color: '#1E293B', fontSize: 22, fontWeight: 'bold' }]}>
+        {getText('الإعدادات', 'Settings')}
+      </Text>
+      
       {/* Settings List */}
       <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false}>
+        
+        {/* Premium Language Toggle */}
+        <View style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row', padding: 12 }]}>
+          <View style={{ flex: 1, flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center' }}>
+            <Ionicons name="language-outline" size={24} color={primaryColor} />
+            <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>
+              {getText('لغة التطبيق', 'App Language')}
+            </Text>
+          </View>
+          
+          <View style={[styles.premiumToggleContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+            <TouchableOpacity
+              style={[styles.premiumToggleButton, language === 'ar' && { backgroundColor: primaryColor, shadowColor: primaryColor, elevation: 4, shadowOpacity: 0.3, shadowRadius: 4 }]}
+              onPress={() => handleLanguageChange('ar')}
+            >
+              <Text style={[styles.premiumToggleText, language === 'ar' && styles.premiumToggleTextActive]}>
+                عربي
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.premiumToggleButton, language === 'en' && { backgroundColor: primaryColor, shadowColor: primaryColor, elevation: 4, shadowOpacity: 0.3, shadowRadius: 4 }]}
+              onPress={() => handleLanguageChange('en')}
+            >
+              <Text style={[styles.premiumToggleText, language === 'en' && styles.premiumToggleTextActive]}>
+                EN
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <TouchableOpacity
           style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
           onPress={() => setIsProfileModalVisible(true)}
@@ -681,12 +688,16 @@ export default function CustomerScreen() {
           <Ionicons name="log-out-outline" size={24} color="#DC3545" />
           <Text style={styles.logoutButtonText}>{getText('تسجيل الخروج', 'Logout')}</Text>
         </TouchableOpacity>
+        {/* Social Icons */}
+        <View style={styles.socialIcons}>
+          <TouchableOpacity style={styles.socialButton} onPress={() => Linking.openURL('https://tiktok.com')}>
+            <FontAwesome5 name="tiktok" size={24} color={primaryColor} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.socialButton} onPress={() => Linking.openURL('https://wa.me/1234567890')}>
+            <FontAwesome5 name="whatsapp" size={24} color={primaryColor} />
+          </TouchableOpacity>
+        </View>
       </ScrollView>
-
-      {/* Footer Brand */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>بواسطة smartflow</Text>
-      </View>
     </View>
   );
 
@@ -1269,20 +1280,29 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   categoryItem: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: '#F8F9FA',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   categoryItemActive: {
     backgroundColor: '#FFFFFF',
     borderWidth: 2,
+    borderColor: TURQUOISE_COLOR,
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
   },
   categoryText: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '600',
     color: '#64748B',
   },
   menuContainer: {
@@ -1378,10 +1398,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
     shadowRadius: 12,
-    elevation: 8,
+    elevation: 10,
   },
   floatingCartContent: {
     alignItems: 'center',
@@ -1566,26 +1586,35 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F9FA',
   },
-  languageToggle: {
-    backgroundColor: '#FFFFFF',
-    margin: 16,
+  sectionTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1E293B',
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  premiumToggleContainer: {
+    backgroundColor: '#F1F5F9',
     borderRadius: 12,
     padding: 4,
+    width: 140,
   },
-  languageButton: {
+  premiumToggleButton: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  languageText: {
+  premiumToggleText: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#64748B',
   },
-  languageTextActive: {
+  premiumToggleTextActive: {
     color: '#FFFFFF',
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
   socialIcons: {
     flexDirection: 'row',
