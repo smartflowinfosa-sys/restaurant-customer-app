@@ -468,15 +468,16 @@ export default function CustomerScreen() {
       getText('تم الطلب بنجاح!', 'Order Placed Successfully!'),
       getText('سيتم تحضير طلبك قريباً.', 'Your order will be prepared shortly.')
     );
-    
+
     // Clear cart and close modal
     setCart([]);
     setIsCartModalVisible(false);
   };
 
   const renderCartModal = () => {
-    const deliveryFee = 10;
-    const finalTotal = totalPrice + deliveryFee;
+    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
+    const total = subtotal + deliveryFee;
 
     return (
       <Modal
@@ -485,17 +486,17 @@ export default function CustomerScreen() {
         transparent={true}
         onRequestClose={() => setIsCartModalVisible(false)}
       >
-        <KeyboardAvoidingView 
-          style={styles.cartModalOverlay} 
+        <KeyboardAvoidingView
+          style={styles.cartModalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <TouchableOpacity 
-            style={styles.cartModalBackdrop} 
-            activeOpacity={1} 
-            onPress={() => setIsCartModalVisible(false)} 
+          <TouchableOpacity
+            style={styles.cartModalBackdrop}
+            activeOpacity={1}
+            onPress={() => setIsCartModalVisible(false)}
           />
           <View style={styles.cartModalContent}>
-            
+
             {/* Header */}
             <View style={[styles.cartModalHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
               <Text style={styles.cartModalTitle}>{getText('سلة المشتريات', 'Your Cart')}</Text>
@@ -516,7 +517,7 @@ export default function CustomerScreen() {
                       {item.price} {getText('ر.س', 'SAR')}
                     </Text>
                   </View>
-                  
+
                   {/* Stepper */}
                   <View style={[styles.cartModalItemStepper, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
                     <TouchableOpacity
@@ -537,6 +538,22 @@ export default function CustomerScreen() {
                   </View>
                 </View>
               ))}
+
+              {/* ORDER SUMMARY */}
+              <View style={{ paddingVertical: 15, paddingHorizontal: 10, borderTopWidth: 1, borderColor: '#E5E7EB', marginVertical: 15, backgroundColor: '#FAFAFA', borderRadius: 8 }}>
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={{ color: '#4B5563', fontSize: 14 }}>{isRTL ? 'المجموع الفرعي' : 'Subtotal'}</Text>
+                  <Text style={{ color: '#4B5563', fontSize: 14 }}>{subtotal} {isRTL ? 'ر.س' : 'SAR'}</Text>
+                </View>
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={{ color: '#4B5563', fontSize: 14 }}>{isRTL ? 'رسوم التوصيل' : 'Delivery Fee'}</Text>
+                  <Text style={{ color: '#4B5563', fontSize: 14 }}>{deliveryFee} {isRTL ? 'ر.س' : 'SAR'}</Text>
+                </View>
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: '#E5E7EB' }}>
+                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: primaryColor }}>{isRTL ? 'الإجمالي' : 'Total'}</Text>
+                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: primaryColor }}>{total} {isRTL ? 'ر.س' : 'SAR'}</Text>
+                </View>
+              </View>
 
               {/* Customer Details */}
               <View style={styles.cartModalNotesContainer}>
@@ -585,14 +602,14 @@ export default function CustomerScreen() {
                 </View>
                 <View style={[styles.cartModalSummaryTotalRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
                   <Text style={styles.cartModalSummaryTotalLabel}>{getText('الإجمالي', 'Total')}</Text>
-                  <Text style={[styles.cartModalSummaryTotalValue, { color: primaryColor }]}>{finalTotal} {getText('ر.س', 'SAR')}</Text>
+                  <Text style={[styles.cartModalSummaryTotalValue, { color: primaryColor }]}>{total} {getText('ر.س', 'SAR')}</Text>
                 </View>
               </View>
             </ScrollView>
 
             {/* Checkout Button */}
             <View style={styles.cartModalFooter}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.cartCheckoutButton, { backgroundColor: primaryColor }]}
                 onPress={handlePlaceOrder}
               >
@@ -641,7 +658,7 @@ export default function CustomerScreen() {
 
       {/* Floating Cart Button */}
       {cart.length > 0 && (
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.floatingCartFab, { backgroundColor: primaryColor }]}
           onPress={() => setIsCartModalVisible(true)}
         >
