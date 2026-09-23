@@ -118,6 +118,16 @@ export default function CustomerScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [phoneError, setPhoneError] = useState('');
   const [successOrderNumber, setSuccessOrderNumber] = useState<string | null>(null);
+  const [checkoutDeliveryAddress, setCheckoutDeliveryAddress] = useState('');
+  const [pickupBranch, setPickupBranch] = useState('فرع الصفا');
+  const [promoCode, setPromoCode] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'applepay' | 'mada' | 'card'>('cash');
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [cardName, setCardName] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCVV, setCardCVV] = useState('');
+  const [cardError, setCardError] = useState('');
   const [gender, setGender] = useState('ذكر');
   const hasRequestedPermissions = useRef(false);
   const insets = useSafeAreaInsets();
@@ -471,6 +481,33 @@ export default function CustomerScreen() {
 
     setPhoneError('');
 
+    if (paymentMethod === 'card') {
+      if (!cardNumber || !/^\d{16}$/.test(cardNumber.replace(/\s+/g, ''))) {
+        setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
+        return;
+      }
+      if (!cardCVV || !/^\d{3,4}$/.test(cardCVV.trim())) {
+        setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
+        return;
+      }
+      if (!cardExpiry || !/^(0[1-9]|1[0-2])\/\d{2}$/.test(cardExpiry.trim())) {
+        setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
+        return;
+      }
+      
+      const [expMonth, expYear] = cardExpiry.split('/').map(Number);
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth() + 1;
+      const currentYear = currentDate.getFullYear() % 100;
+      
+      if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
+        setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
+        return;
+      }
+      
+      setCardError('');
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -517,7 +554,25 @@ export default function CustomerScreen() {
   const renderCartModal = () => {
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
-    const total = subtotal + deliveryFee;
+    const discount = 0; // promo code discount — mock 0 for now
+    const total = subtotal + deliveryFee - discount;
+
+    const sectionTitle = (ar: string, en: string) => (
+      <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginBottom: 14, marginTop: 4 }}>
+        <View style={{ flex: 1, height: 1, backgroundColor: '#E5E7EB' }} />
+        <Text style={{ marginHorizontal: 10, fontSize: 13, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {getText(ar, en)}
+        </Text>
+        <View style={{ flex: 1, height: 1, backgroundColor: '#E5E7EB' }} />
+      </View>
+    );
+
+    const paymentOptions: { key: 'cash' | 'applepay' | 'mada' | 'card'; labelAr: string; labelEn: string; icon: string }[] = [
+      { key: 'cash', labelAr: 'كاش', labelEn: 'Cash', icon: '💵' },
+      { key: 'applepay', labelAr: 'Apple Pay', labelEn: 'Apple Pay', icon: '' },
+      { key: 'mada', labelAr: 'مدى', labelEn: 'Mada', icon: '💳' },
+      { key: 'card', labelAr: 'بطاقة', labelEn: 'Card', icon: '🏦' },
+    ];
 
     return (
       <Modal
@@ -535,85 +590,143 @@ export default function CustomerScreen() {
             activeOpacity={1}
             onPress={() => setIsCartModalVisible(false)}
           />
-          <View style={styles.cartModalContent}>
+          <View style={[styles.cartModalContent, { maxHeight: '92%' }]}>
 
-            {/* Header */}
+            {/* ── Header ── */}
             <View style={[styles.cartModalHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-              <Text style={styles.cartModalTitle}>{getText('سلة المشتريات', 'Your Cart')}</Text>
+              <Text style={styles.cartModalTitle}>{getText('إتمام الطلب', 'Checkout')}</Text>
               <TouchableOpacity onPress={() => setIsCartModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#1E293B" />
               </TouchableOpacity>
             </View>
 
-            {/* Cart Items List */}
-            <ScrollView style={styles.cartModalItemsList} showsVerticalScrollIndicator={false}>
-              {cart.map((item) => (
-                <View key={item.id} style={[styles.cartModalItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                  <View style={[styles.cartModalItemInfo, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
-                    <Text style={[styles.cartModalItemTitle, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={2}>
-                      {language === 'en' ? (item.name_en || item.name || item.name_ar || item.title) : (item.name || item.name_ar || item.title)}
-                    </Text>
-                    <Text style={[styles.cartModalItemPrice, { color: primaryColor }]}>
-                      {item.price} {getText('ر.س', 'SAR')}
-                    </Text>
-                  </View>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
 
-                  {/* Stepper */}
-                  <View style={[styles.cartModalItemStepper, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                    <TouchableOpacity
-                      style={styles.cartModalItemButton}
-                      onPress={() => addToCart(item)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Ionicons name="add" size={16} color="#1F2937" />
-                    </TouchableOpacity>
-                    <Text style={styles.cartModalItemQuantity}>{item.quantity}</Text>
-                    <TouchableOpacity
-                      style={styles.cartModalItemButton}
-                      onPress={() => removeFromCart(item.id)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Ionicons name="remove" size={16} color="#1F2937" />
-                    </TouchableOpacity>
+              {/* ── SECTION 1: Cart Items ── */}
+              {sectionTitle('طلبك', 'Your Order')}
+              <View style={{ backgroundColor: '#F9FAFB', borderRadius: 14, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#E5E7EB' }}>
+                {cart.map((item, idx) => (
+                  <View
+                    key={item.id}
+                    style={[{
+                      flexDirection: isRTL ? 'row-reverse' : 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                    }, idx < cart.length - 1 && { borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }]}
+                  >
+                    <View style={[{ flex: 1 }, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#1E293B', textAlign: isRTL ? 'right' : 'left' }} numberOfLines={1}>
+                        {language === 'en' ? (item.name_en || item.name || item.name_ar || item.title) : (item.name || item.name_ar || item.title)}
+                      </Text>
+                      <Text style={{ fontSize: 13, color: primaryColor, marginTop: 2 }}>
+                        {`${item.price} ${getText('ر.س', 'SAR')}`}
+                      </Text>
+                    </View>
+                    <View style={[{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 8 }]}>
+                      <TouchableOpacity
+                        style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center' }}
+                        onPress={() => addToCart(item)}
+                      >
+                        <Ionicons name="add" size={14} color={primaryColor} />
+                      </TouchableOpacity>
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: '#1E293B', minWidth: 20, textAlign: 'center' }}>{item.quantity}</Text>
+                      <TouchableOpacity
+                        style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center' }}
+                        onPress={() => removeFromCart(item.id)}
+                      >
+                        <Ionicons name="remove" size={14} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-              ))}
-
-              {/* ORDER SUMMARY */}
-              <View style={{ paddingVertical: 15, paddingHorizontal: 10, borderTopWidth: 1, borderColor: '#E5E7EB', marginVertical: 15, backgroundColor: '#FAFAFA', borderRadius: 8 }}>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={{ color: '#4B5563', fontSize: 14 }}>
-                    {isRTL ? 'المجموع الفرعي' : 'Subtotal'}
-                  </Text>
-                  <Text style={{ color: '#4B5563', fontSize: 14 }}>
-                    {`${subtotal} ${isRTL ? 'ر.س' : 'SAR'}`}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={{ color: '#4B5563', fontSize: 14 }}>
-                    {isRTL ? 'رسوم التوصيل' : 'Delivery Fee'}
-                  </Text>
-                  <Text style={{ color: '#4B5563', fontSize: 14 }}>
-                    {`${deliveryFee} ${isRTL ? 'ر.س' : 'SAR'}`}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: '#E5E7EB' }}>
-                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: primaryColor }}>
-                    {isRTL ? 'الإجمالي' : 'Total'}
-                  </Text>
-                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: primaryColor }}>
-                    {`${total} ${isRTL ? 'ر.س' : 'SAR'}`}
-                  </Text>
-                </View>
+                ))}
               </View>
 
-              {/* Customer Details */}
-              <View style={styles.cartModalNotesContainer}>
-                <Text style={[styles.cartModalNotesLabel, { textAlign: isRTL ? 'right' : 'left' }]}>
-                  {getText('معلومات العميل', 'Customer Details')}
-                </Text>
+              {/* ── SECTION 2: Order Mode ── */}
+              {sectionTitle('طريقة الاستلام', 'Fulfillment')}
+              <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 10, marginBottom: 14 }}>
+                {(['delivery', 'pickup'] as const).map((mode) => (
+                  <TouchableOpacity
+                    key={mode}
+                    onPress={() => setDeliveryMode(mode)}
+                    style={[{
+                      flex: 1,
+                      paddingVertical: 12,
+                      borderRadius: 12,
+                      borderWidth: 2,
+                      alignItems: 'center',
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }, deliveryMode === mode
+                      ? { backgroundColor: primaryColor, borderColor: primaryColor }
+                      : { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB' }]}
+                  >
+                    <Ionicons
+                      name={mode === 'delivery' ? 'car-outline' : 'storefront-outline'}
+                      size={18}
+                      color={deliveryMode === mode ? '#FFFFFF' : '#64748B'}
+                    />
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: deliveryMode === mode ? '#FFFFFF' : '#64748B' }}>
+                      {mode === 'delivery' ? getText('توصيل', 'Delivery') : getText('استلام', 'Pickup')}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {deliveryMode === 'delivery' ? (
                 <TextInput
-                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48, marginBottom: 12 }]}
+                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', marginBottom: 20 }]}
+                  placeholder={getText('عنوان التوصيل (الحي، الشارع...)', 'Delivery Address (District, Street...)')}
+                  placeholderTextColor="#9CA3AF"
+                  value={checkoutDeliveryAddress}
+                  onChangeText={setCheckoutDeliveryAddress}
+                />
+              ) : (
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{ fontSize: 13, color: '#64748B', marginBottom: 8, textAlign: isRTL ? 'right' : 'left' }}>
+                    {getText('اختر الفرع', 'Select Branch')}
+                  </Text>
+                  {['فرع الصفا', 'فرع النسيم'].map((branch) => (
+                    <TouchableOpacity
+                      key={branch}
+                      onPress={() => setPickupBranch(branch)}
+                      style={[{
+                        flexDirection: isRTL ? 'row-reverse' : 'row',
+                        alignItems: 'center',
+                        paddingVertical: 11,
+                        paddingHorizontal: 14,
+                        borderRadius: 10,
+                        borderWidth: 1.5,
+                        marginBottom: 8,
+                        gap: 10,
+                      }, pickupBranch === branch
+                        ? { borderColor: primaryColor, backgroundColor: '#EEF2FF' }
+                        : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
+                    >
+                      <Ionicons
+                        name={pickupBranch === branch ? 'radio-button-on' : 'radio-button-off'}
+                        size={18}
+                        color={pickupBranch === branch ? primaryColor : '#9CA3AF'}
+                      />
+                      <Text style={{ fontSize: 14, color: pickupBranch === branch ? primaryColor : '#374151', fontWeight: pickupBranch === branch ? '600' : '400' }}>
+                        {branch}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* ── SECTION 3: Customer Info ── */}
+              {sectionTitle('بيانات العميل', 'Customer Info')}
+              <View style={{ marginBottom: 20, gap: 10 }}>
+                <TextInput
+                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48 }]}
                   placeholder={getText('الاسم الكامل', 'Full Name')}
                   placeholderTextColor="#9CA3AF"
                   value={customerName}
@@ -628,30 +741,171 @@ export default function CustomerScreen() {
                   onChangeText={(text) => { setCustomerPhone(text); if (phoneError) setPhoneError(''); }}
                 />
                 {phoneError ? (
-                  <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4, textAlign: isRTL ? 'right' : 'left' }}>
+                  <Text style={{ color: '#EF4444', fontSize: 12, textAlign: isRTL ? 'right' : 'left' }}>
                     {phoneError}
                   </Text>
                 ) : null}
-              </View>
-
-              {/* Order Notes */}
-              <View style={[styles.cartModalNotesContainer, { marginTop: 0 }]}>
-                <Text style={[styles.cartModalNotesLabel, { textAlign: isRTL ? 'right' : 'left' }]}>
-                  {getText('ملاحظات الطلب', 'Order Notes')}
-                </Text>
                 <TextInput
-                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left' }]}
-                  placeholder={getText('هل لديك أي طلبات خاصة؟', 'Any special requests?')}
+                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 80 }]}
+                  placeholder={getText('ملاحظات (اختياري)', 'Notes (optional)')}
                   placeholderTextColor="#9CA3AF"
                   multiline
                 />
               </View>
 
+              {/* ── SECTION 4: Promo Code ── */}
+              {sectionTitle('كود الخصم', 'Promo Code')}
+              <View style={[{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 10, marginBottom: 20 }]}>
+                <TextInput
+                  style={[styles.cartModalNotesInput, { flex: 1, textAlign: isRTL ? 'right' : 'left', minHeight: 48 }]}
+                  placeholder={getText('أدخل الكود', 'Enter code')}
+                  placeholderTextColor="#9CA3AF"
+                  value={promoCode}
+                  onChangeText={setPromoCode}
+                  autoCapitalize="characters"
+                />
+                <TouchableOpacity
+                  style={{ backgroundColor: '#F1F5F9', borderRadius: 12, paddingHorizontal: 18, justifyContent: 'center', borderWidth: 1, borderColor: '#E5E7EB' }}
+                  onPress={() => alert(getText('هذه الميزة قادمة قريباً!', 'Coming soon!'))}
+                >
+                  <Text style={{ color: primaryColor, fontWeight: '700', fontSize: 14 }}>
+                    {getText('تطبيق', 'Apply')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* ── SECTION 5: Payment Method ── */}
+              {sectionTitle('طريقة الدفع', 'Payment Method')}
+              <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
+                {paymentOptions.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.key}
+                    onPress={() => setPaymentMethod(opt.key)}
+                    style={[{
+                      flex: 1,
+                      minWidth: '43%',
+                      paddingVertical: 12,
+                      paddingHorizontal: 8,
+                      borderRadius: 12,
+                      borderWidth: 2,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }, paymentMethod === opt.key
+                      ? { borderColor: primaryColor, backgroundColor: '#EEF2FF' }
+                      : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
+                  >
+                    {opt.key === 'applepay' && (
+                      <Image source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/Apple_Pay_logo.svg/512px-Apple_Pay_logo.svg.png' }} style={{ height: 40, width: 60, resizeMode: 'contain' }} />
+                    )}
+                    {opt.key === 'mada' && (
+                      <Image source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Mada_Logo.svg/512px-Mada_Logo.svg.png' }} style={{ height: 40, width: 60, resizeMode: 'contain' }} />
+                    )}
+                    {opt.key === 'card' && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Image source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Visa_Inc._logo.svg/512px-Visa_Inc._logo.svg.png' }} style={{ height: 40, width: 40, resizeMode: 'contain' }} />
+                        <Image source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Mastercard-logo.svg/512px-Mastercard-logo.svg.png' }} style={{ height: 40, width: 40, resizeMode: 'contain' }} />
+                      </View>
+                    )}
+                    {opt.key === 'cash' && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 22 }}>💵</Text>
+                        <Text style={{
+                          fontSize: 13,
+                          fontWeight: '600',
+                          color: paymentMethod === opt.key ? primaryColor : '#64748B',
+                          textAlign: 'center',
+                        }}>
+                          {getText('الدفع عند الاستلام', 'Cash on Delivery')}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* ── Conditional Credit Card Form ── */}
+              {paymentMethod === 'card' && (
+                <View style={{ marginBottom: 20, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
+                  <TextInput
+                    style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', marginBottom: 12, borderColor: cardError ? '#EF4444' : '#E5E7EB' }]}
+                    placeholder={getText('الاسم على البطاقة', 'Name on Card')}
+                    placeholderTextColor="#9CA3AF"
+                    value={cardName}
+                    onChangeText={(text) => { setCardName(text); if (cardError) setCardError(''); }}
+                  />
+                  <TextInput
+                    style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', marginBottom: 12, borderColor: cardError ? '#EF4444' : '#E5E7EB' }]}
+                    placeholder={getText('رقم البطاقة (16 رقم)', 'Card Number (16 digits)')}
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="numeric"
+                    maxLength={16}
+                    value={cardNumber}
+                    onChangeText={(text) => { setCardNumber(text); if (cardError) setCardError(''); }}
+                  />
+                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 10 }}>
+                    <TextInput
+                      style={[styles.cartModalNotesInput, { flex: 1, textAlign: isRTL ? 'right' : 'left', borderColor: cardError ? '#EF4444' : '#E5E7EB' }]}
+                      placeholder={getText('تاريخ الانتهاء (MM/YY)', 'Expiry (MM/YY)')}
+                      placeholderTextColor="#9CA3AF"
+                      maxLength={5}
+                      value={cardExpiry}
+                      onChangeText={(text) => {
+                        let formattedText = text;
+                        if (text.length === 2 && cardExpiry.length === 1) {
+                          formattedText = text + '/';
+                        } else if (text.length === 3 && text.charAt(2) !== '/') {
+                          formattedText = text.slice(0, 2) + '/' + text.slice(2);
+                        }
+                        setCardExpiry(formattedText);
+                        if (cardError) setCardError('');
+                      }}
+                    />
+                    <TextInput
+                      style={[styles.cartModalNotesInput, { flex: 1, textAlign: isRTL ? 'right' : 'left', borderColor: cardError ? '#EF4444' : '#E5E7EB' }]}
+                      placeholder={getText('الرمز السري (CVV)', 'CVV')}
+                      placeholderTextColor="#9CA3AF"
+                      keyboardType="numeric"
+                      secureTextEntry
+                      maxLength={4}
+                      value={cardCVV}
+                      onChangeText={(text) => { setCardCVV(text); if (cardError) setCardError(''); }}
+                    />
+                  </View>
+                  {cardError ? (
+                    <Text style={{ color: '#EF4444', fontSize: 13, marginTop: 10, textAlign: isRTL ? 'right' : 'left' }}>
+                      {cardError}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+
+              {/* ── SECTION 6: Financial Summary ── */}
+              {sectionTitle('ملخص الطلب', 'Order Summary')}
+              <View style={{ backgroundColor: '#F9FAFB', borderRadius: 14, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: '#E5E7EB' }}>
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <Text style={{ color: '#64748B', fontSize: 14 }}>{getText('المجموع الفرعي', 'Subtotal')}</Text>
+                  <Text style={{ color: '#1E293B', fontSize: 14 }}>{`${subtotal} ${getText('ر.س', 'SAR')}`}</Text>
+                </View>
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <Text style={{ color: '#64748B', fontSize: 14 }}>{getText('رسوم التوصيل', 'Delivery Fee')}</Text>
+                  <Text style={{ color: '#1E293B', fontSize: 14 }}>{deliveryMode === 'delivery' ? `10 ${getText('ر.س', 'SAR')}` : getText('مجاني', 'Free')}</Text>
+                </View>
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <Text style={{ color: '#64748B', fontSize: 14 }}>{getText('الخصم', 'Discount')}</Text>
+                  <Text style={{ color: '#16A34A', fontSize: 14 }}>{`- 0 ${getText('ر.س', 'SAR')}`}</Text>
+                </View>
+                <View style={{ height: 1, backgroundColor: '#E5E7EB', marginBottom: 12 }} />
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1E293B' }}>{getText('الإجمالي', 'Total')}</Text>
+                  <Text style={{ fontSize: 17, fontWeight: 'bold', color: primaryColor }}>{`${total} ${getText('ر.س', 'SAR')}`}</Text>
+                </View>
+              </View>
 
             </ScrollView>
 
-            {/* Checkout Button */}
-            <View style={styles.cartModalFooter}>
+            {/* ── Submit Button ── */}
+            <View style={[styles.cartModalFooter, { paddingTop: 12 }]}>
               <TouchableOpacity
                 style={[styles.cartCheckoutButton, { backgroundColor: primaryColor }, isSubmitting && { opacity: 0.7 }]}
                 onPress={handlePlaceOrder}
@@ -660,7 +914,10 @@ export default function CustomerScreen() {
                 {isSubmitting ? (
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
-                  <Text style={styles.cartCheckoutButtonText}>{getText('تنفيذ الطلب', 'Place Order')}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />
+                    <Text style={styles.cartCheckoutButtonText}>{getText('إرسال الطلب', 'Place Order')}</Text>
+                  </View>
                 )}
               </TouchableOpacity>
             </View>
@@ -894,95 +1151,171 @@ export default function CustomerScreen() {
     setLanguage(lang);
   };
 
-  const renderMoreTab = () => (
-    <View style={styles.moreContainer}>
-      <Text style={[styles.sectionTitle, { textAlign: isRTL ? 'right' : 'left', marginHorizontal: 16, marginTop: 16, color: '#1E293B', fontSize: 22, fontWeight: 'bold' }]}>
-        {getText('الإعدادات', 'Settings')}
+  const renderMoreTab = () => {
+    const renderSettingItem = (
+      icon: string,
+      titleAr: string,
+      titleEn: string,
+      onPress: () => void,
+      customRight?: React.ReactNode,
+      hideBorder?: boolean
+    ) => (
+      <TouchableOpacity
+        style={[
+          { flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16 },
+          !hideBorder && { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }
+        ]}
+        onPress={onPress}
+      >
+        <Ionicons name={icon as any} size={22} color="#64748B" />
+        <Text style={{ flex: 1, fontSize: 16, color: '#334155', textAlign: isRTL ? 'right' : 'left', marginHorizontal: 12, fontWeight: '500' }}>
+          {getText(titleAr, titleEn)}
+        </Text>
+        {customRight ? customRight : (
+          <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
+        )}
+      </TouchableOpacity>
+    );
+
+    const sectionTitle = (titleAr: string, titleEn: string) => (
+      <Text style={{ textAlign: isRTL ? 'right' : 'left', marginHorizontal: 20, marginTop: 24, marginBottom: 8, color: '#0F172A', fontSize: 18, fontWeight: 'bold' }}>
+        {getText(titleAr, titleEn)}
       </Text>
+    );
 
-      {/* Settings List */}
-      <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false}>
+    const languageToggle = (
+      <View style={[styles.premiumToggleContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+        <TouchableOpacity
+          style={[styles.premiumToggleButton, language === 'ar' && { backgroundColor: primaryColor, shadowColor: primaryColor, elevation: 4, shadowOpacity: 0.3, shadowRadius: 4 }]}
+          onPress={() => handleLanguageChange('ar')}
+        >
+          <Text style={[styles.premiumToggleText, language === 'ar' && styles.premiumToggleTextActive]}>
+            عربي
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.premiumToggleButton, language === 'en' && { backgroundColor: primaryColor, shadowColor: primaryColor, elevation: 4, shadowOpacity: 0.3, shadowRadius: 4 }]}
+          onPress={() => handleLanguageChange('en')}
+        >
+          <Text style={[styles.premiumToggleText, language === 'en' && styles.premiumToggleTextActive]}>
+            EN
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
 
-        {/* Premium Language Toggle */}
-        <View style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row', padding: 12 }]}>
-          <View style={{ flex: 1, flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center' }}>
-            <Ionicons name="language-outline" size={24} color={primaryColor} />
-            <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>
-              {getText('لغة التطبيق', 'App Language')}
-            </Text>
+    return (
+      <View style={styles.moreContainer}>
+        <Text style={[styles.sectionTitle, { textAlign: isRTL ? 'right' : 'left', marginHorizontal: 20, marginTop: 16, color: '#1E293B', fontSize: 24, fontWeight: 'bold' }]}>
+          {getText('المزيد', 'More')}
+        </Text>
+
+        <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+
+          {/* Social Icons (Moved to Top) */}
+          <View style={[styles.socialIcons, { marginTop: 8, marginBottom: 16 }]}>
+            <TouchableOpacity style={styles.socialButton} onPress={() => Linking.openURL('https://tiktok.com')}>
+              <FontAwesome5 name="tiktok" size={24} color={primaryColor} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.socialButton} onPress={() => Linking.openURL('https://wa.me/1234567890')}>
+              <FontAwesome5 name="whatsapp" size={24} color={primaryColor} />
+            </TouchableOpacity>
           </View>
 
-          <View style={[styles.premiumToggleContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-            <TouchableOpacity
-              style={[styles.premiumToggleButton, language === 'ar' && { backgroundColor: primaryColor, shadowColor: primaryColor, elevation: 4, shadowOpacity: 0.3, shadowRadius: 4 }]}
-              onPress={() => handleLanguageChange('ar')}
-            >
-              <Text style={[styles.premiumToggleText, language === 'ar' && styles.premiumToggleTextActive]}>
-                عربي
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.premiumToggleButton, language === 'en' && { backgroundColor: primaryColor, shadowColor: primaryColor, elevation: 4, shadowOpacity: 0.3, shadowRadius: 4 }]}
-              onPress={() => handleLanguageChange('en')}
-            >
-              <Text style={[styles.premiumToggleText, language === 'en' && styles.premiumToggleTextActive]}>
-                EN
-              </Text>
-            </TouchableOpacity>
+          {/* Section 1: My Account */}
+          {sectionTitle('حسابي', 'My Account')}
+          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
+            {renderSettingItem('person-outline', 'الملف الشخصي', 'Profile', () => setIsProfileModalVisible(true))}
+            {renderSettingItem('location-outline', 'العناوين المحفوظة', 'Saved Addresses', () => setActiveSection('SavedAddresses'))}
+            {renderSettingItem('wallet-outline', 'المحفظة والرصيد', 'Wallet & Balance', () => setActiveSection('Wallet'), undefined, true)}
           </View>
-        </View>
 
-        <TouchableOpacity
-          style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
-          onPress={() => setIsProfileModalVisible(true)}
-        >
-          <Ionicons name="person-outline" size={24} color="#64748B" />
-          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('الملف الشخصي', 'Profile')}</Text>
-          <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
-          onPress={() => setIsPrivacyModalVisible(true)}
-        >
-          <Ionicons name="lock-closed-outline" size={24} color="#64748B" />
-          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('سياسة الخصوصية', 'Privacy Policy')}</Text>
-          <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
-          onPress={() => setIsTermsModalVisible(true)}
-        >
-          <Ionicons name="document-text-outline" size={24} color="#64748B" />
-          <Text style={[styles.settingText, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('الشروط والأحكام', 'Terms & Conditions')}</Text>
-          <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
-        </TouchableOpacity>
+          {/* Section 2: Settings */}
+          {sectionTitle('الإعدادات', 'Settings')}
+          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
+            {renderSettingItem('language-outline', 'لغة التطبيق', 'App Language', () => {}, languageToggle)}
+            {renderSettingItem('notifications-outline', 'إعدادات الإشعارات', 'Notifications Settings', () => setActiveSection('Notifications'), undefined, true)}
+          </View>
 
-        {/* Logout Button */}
-        <TouchableOpacity
-          style={[styles.logoutButton, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
-        >
-          <Ionicons name="log-out-outline" size={24} color="#DC3545" />
-          <Text style={styles.logoutButtonText}>{getText('تسجيل الخروج', 'Logout')}</Text>
-        </TouchableOpacity>
-        {/* Social Icons */}
-        <View style={styles.socialIcons}>
-          <TouchableOpacity style={styles.socialButton} onPress={() => Linking.openURL('https://tiktok.com')}>
-            <FontAwesome5 name="tiktok" size={24} color={primaryColor} />
+          {/* Section 3: Support & Info */}
+          {sectionTitle('الدعم والمعلومات', 'Support & Info')}
+          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
+            {renderSettingItem('chatbubbles-outline', 'تواصل معنا', 'Contact Us', () => setActiveSection('Contact'))}
+            {renderSettingItem('help-circle-outline', 'الأسئلة الشائعة', 'FAQ', () => setActiveSection('FAQ'))}
+            {renderSettingItem('document-text-outline', 'الشروط والأحكام', 'Terms & Conditions', () => setIsTermsModalVisible(true))}
+            {renderSettingItem('lock-closed-outline', 'سياسة الخصوصية', 'Privacy Policy', () => setIsPrivacyModalVisible(true))}
+            {renderSettingItem('information-circle-outline', 'عن التطبيق', 'About the App', () => setActiveSection('About'), undefined, true)}
+          </View>
+
+          {/* Logout Button */}
+          <TouchableOpacity
+            style={[styles.logoutButton, { flexDirection: isRTL ? 'row-reverse' : 'row', marginHorizontal: 16, marginTop: 32, borderRadius: 12 }]}
+          >
+            <Ionicons name="log-out-outline" size={24} color="#DC3545" />
+            <Text style={styles.logoutButtonText}>{getText('تسجيل الخروج', 'Logout')}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.socialButton} onPress={() => Linking.openURL('https://wa.me/1234567890')}>
-            <FontAwesome5 name="whatsapp" size={24} color={primaryColor} />
+
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const renderMockSectionModal = () => (
+    <Modal
+      visible={activeSection !== null}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={() => setActiveSection(null)}
+    >
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+        <View style={{ backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, minHeight: 300 }}>
+          {activeSection === 'Wallet' && (
+            <View style={{ alignItems: 'center', marginTop: 20 }}>
+              <Ionicons name="wallet" size={48} color={primaryColor} />
+              <Text style={{ fontSize: 20, fontWeight: 'bold', marginTop: 16 }}>{getText('الرصيد الحالي', 'Current Balance')}</Text>
+              <Text style={{ fontSize: 24, color: primaryColor, fontWeight: 'bold', marginTop: 8 }}>0.00 ر.س</Text>
+            </View>
+          )}
+          {activeSection === 'SavedAddresses' && (
+            <View style={{ marginTop: 10 }}>
+              <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16, textAlign: isRTL ? 'right' : 'left' }}>{getText('العناوين المحفوظة', 'Saved Addresses')}</Text>
+              <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', padding: 16, backgroundColor: '#F1F5F9', borderRadius: 12 }}>
+                <Ionicons name="location" size={24} color={primaryColor} />
+                <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, textAlign: isRTL ? 'right' : 'left', fontWeight: '500' }}>المنزل - حي الصفا</Text>
+              </View>
+            </View>
+          )}
+          {activeSection === 'Contact' && (
+            <View style={{ marginTop: 10 }}>
+              <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16, textAlign: isRTL ? 'right' : 'left' }}>{getText('تواصل معنا', 'Contact Us')}</Text>
+              <Text style={{ fontSize: 16, marginBottom: 8, textAlign: isRTL ? 'right' : 'left' }}>📞 920000000</Text>
+              <Text style={{ fontSize: 16, textAlign: isRTL ? 'right' : 'left' }}>✉️ support@restaurant.com</Text>
+            </View>
+          )}
+          {(activeSection === 'Notifications' || activeSection === 'FAQ' || activeSection === 'About') && (
+            <View style={{ alignItems: 'center', marginTop: 40 }}>
+              <Ionicons name="construct" size={48} color="#9CA3AF" />
+              <Text style={{ fontSize: 18, color: '#64748B', marginTop: 16 }}>{getText('سيتم تفعيل هذه الشاشة قريباً', 'Coming soon')}</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={{ backgroundColor: primaryColor, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 40 }}
+            onPress={() => setActiveSection(null)}
+          >
+            <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold' }}>{getText('إغلاق', 'Close')}</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
-    </View>
+      </View>
+    </Modal>
   );
 
   const renderMenuHeader = () => (
     <View style={styles.menuHeader}>
       {/* Restaurant Branding Header */}
       <View style={[styles.brandingHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-        <View style={styles.brandingLogoPlaceholder}>
-          <Ionicons name="restaurant" size={32} color={primaryColor} />
+        <View style={[styles.brandingLogoPlaceholder, { overflow: 'hidden', padding: 0, justifyContent: 'center', alignItems: 'center' }]}>
+          <Image source={{ uri: 'https://img.freepik.com/free-vector/detailed-chef-logo-template_23-2148987940.jpg' }} style={{ width: 50, height: 50, borderRadius: 25 }} />
         </View>
         <View style={[styles.brandingInfo, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
           <Text style={[styles.brandingTitle, { textAlign: isRTL ? 'right' : 'left' }]}>
@@ -1412,6 +1745,9 @@ export default function CustomerScreen() {
 
       {/* Cart Checkout Modal */}
       {renderCartModal()}
+
+      {/* Mock Section Modal */}
+      {renderMockSectionModal()}
 
       {/* Order Success Modal */}
       {renderSuccessModal()}
