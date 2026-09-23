@@ -18,6 +18,7 @@ import {
   Platform,
   LayoutAnimation,
   UIManager,
+  KeyboardAvoidingView,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -70,13 +71,7 @@ interface MenuItem {
   image_url: string;
 }
 
-interface CartItem {
-  id: string;
-  title?: string;
-  name?: string;
-  name_ar?: string;
-  name_en?: string;
-  price: number;
+interface CartItem extends MenuItem {
   quantity: number;
 }
 
@@ -117,6 +112,9 @@ export default function CustomerScreen() {
   const [isProfileModalVisible, setIsProfileModalVisible] = useState(false);
   const [isPrivacyModalVisible, setIsPrivacyModalVisible] = useState(false);
   const [isTermsModalVisible, setIsTermsModalVisible] = useState(false);
+  const [isCartModalVisible, setIsCartModalVisible] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [gender, setGender] = useState('ذكر');
   const hasRequestedPermissions = useRef(false);
   const insets = useSafeAreaInsets();
@@ -353,7 +351,7 @@ export default function CustomerScreen() {
 
   const renderCategory = (category: Category) => {
     const isActive = selectedCategory === category.id;
-    const categoryName = language === 'en' 
+    const categoryName = language === 'en'
       ? (category.name_en || category.name || category.title || category.name_ar || 'بدون اسم')
       : (category.name || category.title || category.name_ar || 'بدون اسم');
 
@@ -362,7 +360,10 @@ export default function CustomerScreen() {
         key={category.id}
         style={[
           styles.categoryItem,
-          isActive && styles.categoryItemActive,
+          isActive && [
+            styles.categoryItemActive,
+            { backgroundColor: primaryColor, boxShadow: `0px 4px 12px ${primaryColor}66` }
+          ],
           { transform: [{ scaleX: isRTL ? -1 : 1 }] }
         ]}
         onPress={() => setSelectedCategory(category.id)}
@@ -370,7 +371,7 @@ export default function CustomerScreen() {
         <Text
           style={[
             styles.categoryText,
-            isActive && { color: primaryColor },
+            isActive && styles.categoryTextActive,
           ]}
         >
           {categoryName}
@@ -381,7 +382,7 @@ export default function CustomerScreen() {
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
     const quantity = getItemQuantity(item.id);
-    const itemName = language === 'en' 
+    const itemName = language === 'en'
       ? (item.name_en || item.name || item.name_ar || item.title)
       : (item.name || item.name_ar || item.title);
     const itemDesc = language === 'en'
@@ -390,7 +391,7 @@ export default function CustomerScreen() {
 
     return (
       <View style={[styles.menuItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-        <Image source={{ uri: item.image_url }} style={styles.menuItemImage} />
+        <Image source={{ uri: item.image_url }} style={styles.menuItemImage} resizeMode="cover" />
         <View style={[styles.menuItemContent, isRTL ? { marginRight: 0, marginLeft: 12 } : { marginRight: 12, marginLeft: 0 }]}>
           <Text style={[styles.menuItemTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{itemName}</Text>
           <Text style={[styles.menuItemDescription, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={2}>
@@ -404,8 +405,9 @@ export default function CustomerScreen() {
           <TouchableOpacity
             style={styles.quantityButton}
             onPress={() => addToCart(item)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="add" size={20} color={primaryColor} />
+            <Ionicons name="add" size={18} color={primaryColor} />
           </TouchableOpacity>
           <Text style={[styles.quantityText, { color: primaryColor }]}>
             {quantity > 0 ? quantity : 0}
@@ -414,11 +416,12 @@ export default function CustomerScreen() {
             style={styles.quantityButton}
             onPress={() => removeFromCart(item.id)}
             disabled={quantity === 0}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Ionicons
               name="remove"
-              size={20}
-              color={quantity > 0 ? primaryColor : '#CBD5E1'}
+              size={18}
+              color={quantity > 0 ? primaryColor : '#9CA3AF'}
             />
           </TouchableOpacity>
         </View>
@@ -437,7 +440,7 @@ export default function CustomerScreen() {
         <Ionicons
           name={iconName as any}
           size={24}
-          color={isActive ? primaryColor : '#94A3B8'}
+          color={isActive ? primaryColor : '#6B7280'}
         />
         <Text
           style={[
@@ -448,6 +451,158 @@ export default function CustomerScreen() {
           {getText(labelAr, labelEn)}
         </Text>
       </TouchableOpacity>
+    );
+  };
+
+  const handlePlaceOrder = () => {
+    if (!customerName.trim() || !customerPhone.trim()) {
+      RNAlert.alert(
+        getText('بيانات مفقودة', 'Missing Information'),
+        getText('الرجاء إدخال اسمك ورقم جوالك لإتمام الطلب.', 'Please enter your name and phone number to complete the order.')
+      );
+      return;
+    }
+
+    // Success
+    RNAlert.alert(
+      getText('تم الطلب بنجاح!', 'Order Placed Successfully!'),
+      getText('سيتم تحضير طلبك قريباً.', 'Your order will be prepared shortly.')
+    );
+    
+    // Clear cart and close modal
+    setCart([]);
+    setIsCartModalVisible(false);
+  };
+
+  const renderCartModal = () => {
+    const deliveryFee = 10;
+    const finalTotal = totalPrice + deliveryFee;
+
+    return (
+      <Modal
+        visible={isCartModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsCartModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          style={styles.cartModalOverlay} 
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableOpacity 
+            style={styles.cartModalBackdrop} 
+            activeOpacity={1} 
+            onPress={() => setIsCartModalVisible(false)} 
+          />
+          <View style={styles.cartModalContent}>
+            
+            {/* Header */}
+            <View style={[styles.cartModalHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+              <Text style={styles.cartModalTitle}>{getText('سلة المشتريات', 'Your Cart')}</Text>
+              <TouchableOpacity onPress={() => setIsCartModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#1E293B" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Cart Items List */}
+            <ScrollView style={styles.cartModalItemsList} showsVerticalScrollIndicator={false}>
+              {cart.map((item) => (
+                <View key={item.id} style={[styles.cartModalItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                  <View style={[styles.cartModalItemInfo, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
+                    <Text style={[styles.cartModalItemTitle, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={2}>
+                      {language === 'en' ? (item.name_en || item.name || item.name_ar || item.title) : (item.name || item.name_ar || item.title)}
+                    </Text>
+                    <Text style={[styles.cartModalItemPrice, { color: primaryColor }]}>
+                      {item.price} {getText('ر.س', 'SAR')}
+                    </Text>
+                  </View>
+                  
+                  {/* Stepper */}
+                  <View style={[styles.cartModalItemStepper, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                    <TouchableOpacity
+                      style={styles.cartModalItemButton}
+                      onPress={() => addToCart(item)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="add" size={16} color="#1F2937" />
+                    </TouchableOpacity>
+                    <Text style={styles.cartModalItemQuantity}>{item.quantity}</Text>
+                    <TouchableOpacity
+                      style={styles.cartModalItemButton}
+                      onPress={() => removeFromCart(item.id)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="remove" size={16} color="#1F2937" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+
+              {/* Customer Details */}
+              <View style={styles.cartModalNotesContainer}>
+                <Text style={[styles.cartModalNotesLabel, { textAlign: isRTL ? 'right' : 'left' }]}>
+                  {getText('معلومات العميل', 'Customer Details')}
+                </Text>
+                <TextInput
+                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48, marginBottom: 12 }]}
+                  placeholder={getText('الاسم الكامل', 'Full Name')}
+                  placeholderTextColor="#9CA3AF"
+                  value={customerName}
+                  onChangeText={setCustomerName}
+                />
+                <TextInput
+                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48 }]}
+                  placeholder={getText('رقم الجوال', 'Phone Number')}
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="phone-pad"
+                  value={customerPhone}
+                  onChangeText={setCustomerPhone}
+                />
+              </View>
+
+              {/* Order Notes */}
+              <View style={[styles.cartModalNotesContainer, { marginTop: 0 }]}>
+                <Text style={[styles.cartModalNotesLabel, { textAlign: isRTL ? 'right' : 'left' }]}>
+                  {getText('ملاحظات الطلب', 'Order Notes')}
+                </Text>
+                <TextInput
+                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left' }]}
+                  placeholder={getText('هل لديك أي طلبات خاصة؟', 'Any special requests?')}
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                />
+              </View>
+
+              {/* Summary */}
+              <View style={styles.cartModalSummary}>
+                <View style={[styles.cartModalSummaryRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                  <Text style={styles.cartModalSummaryLabel}>{getText('المجموع الفرعي', 'Subtotal')}</Text>
+                  <Text style={styles.cartModalSummaryValue}>{totalPrice} {getText('ر.س', 'SAR')}</Text>
+                </View>
+                <View style={[styles.cartModalSummaryRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                  <Text style={styles.cartModalSummaryLabel}>{getText('رسوم التوصيل', 'Delivery Fee')}</Text>
+                  <Text style={styles.cartModalSummaryValue}>{deliveryFee} {getText('ر.س', 'SAR')}</Text>
+                </View>
+                <View style={[styles.cartModalSummaryTotalRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                  <Text style={styles.cartModalSummaryTotalLabel}>{getText('الإجمالي', 'Total')}</Text>
+                  <Text style={[styles.cartModalSummaryTotalValue, { color: primaryColor }]}>{finalTotal} {getText('ر.س', 'SAR')}</Text>
+                </View>
+              </View>
+            </ScrollView>
+
+            {/* Checkout Button */}
+            <View style={styles.cartModalFooter}>
+              <TouchableOpacity 
+                style={[styles.cartCheckoutButton, { backgroundColor: primaryColor }]}
+                onPress={handlePlaceOrder}
+              >
+                <Text style={styles.cartCheckoutButtonText}>{getText('تنفيذ الطلب', 'Place Order')}</Text>
+              </TouchableOpacity>
+            </View>
+
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     );
   };
 
@@ -486,16 +641,15 @@ export default function CustomerScreen() {
 
       {/* Floating Cart Button */}
       {cart.length > 0 && (
-        <View style={styles.floatingCartContainer}>
-          <TouchableOpacity style={[styles.floatingCart, { backgroundColor: primaryColor }]}>
-            <View style={[styles.floatingCartContent, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-              <Ionicons name="cart-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.floatingCartText}>
-                {totalPrice} ر.س | {totalItems} {getText('الأصناف', 'items')}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity 
+          style={[styles.floatingCartFab, { backgroundColor: primaryColor }]}
+          onPress={() => setIsCartModalVisible(true)}
+        >
+          <Ionicons name="cart-outline" size={28} color="#FFFFFF" />
+          <View style={styles.floatingCartFabBadge}>
+            <Text style={[styles.floatingCartFabBadgeText, { color: primaryColor }]}>{totalItems}</Text>
+          </View>
+        </TouchableOpacity>
       )}
     </>
   );
@@ -623,10 +777,10 @@ export default function CustomerScreen() {
       <Text style={[styles.sectionTitle, { textAlign: isRTL ? 'right' : 'left', marginHorizontal: 16, marginTop: 16, color: '#1E293B', fontSize: 22, fontWeight: 'bold' }]}>
         {getText('الإعدادات', 'Settings')}
       </Text>
-      
+
       {/* Settings List */}
       <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false}>
-        
+
         {/* Premium Language Toggle */}
         <View style={[styles.settingItem, { flexDirection: isRTL ? 'row-reverse' : 'row', padding: 12 }]}>
           <View style={{ flex: 1, flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center' }}>
@@ -635,7 +789,7 @@ export default function CustomerScreen() {
               {getText('لغة التطبيق', 'App Language')}
             </Text>
           </View>
-          
+
           <View style={[styles.premiumToggleContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
             <TouchableOpacity
               style={[styles.premiumToggleButton, language === 'ar' && { backgroundColor: primaryColor, shadowColor: primaryColor, elevation: 4, shadowOpacity: 0.3, shadowRadius: 4 }]}
@@ -703,6 +857,31 @@ export default function CustomerScreen() {
 
   const renderMenuHeader = () => (
     <View style={styles.menuHeader}>
+      {/* Restaurant Branding Header */}
+      <View style={[styles.brandingHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+        <View style={styles.brandingLogoPlaceholder}>
+          <Ionicons name="restaurant" size={32} color={primaryColor} />
+        </View>
+        <View style={[styles.brandingInfo, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
+          <Text style={[styles.brandingTitle, { textAlign: isRTL ? 'right' : 'left' }]}>
+            {restaurant?.name || 'SmartFlow Restaurant'}
+          </Text>
+          <Text style={[styles.brandingSubtitle, { textAlign: isRTL ? 'right' : 'left' }]}>
+            ⭐ 4.8 • {getText('مفتوح', 'Open')} • 30 {getText('دقيقة', 'mins')}
+          </Text>
+        </View>
+      </View>
+
+      {/* Modern Search Bar */}
+      <View style={[styles.searchBarContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+        <Ionicons name="search" size={20} color="#9CA3AF" />
+        <TextInput
+          style={[styles.searchInput, { textAlign: isRTL ? 'right' : 'left' }]}
+          placeholder={getText('ابحث عن أطباقك المفضلة...', 'Search for your favorite dishes...')}
+          placeholderTextColor="#9CA3AF"
+        />
+      </View>
+
       {/* Delivery/Pickup Toggle */}
       <View style={[styles.deliveryToggle, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
         <TouchableOpacity
@@ -1108,6 +1287,9 @@ export default function CustomerScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+
+      {/* Cart Checkout Modal */}
+      {renderCartModal()}
     </SafeAreaView>
   );
 }
@@ -1153,8 +1335,53 @@ const styles = StyleSheet.create({
   menuHeader: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 8,
+  },
+  brandingHeader: {
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+    marginTop: 8,
+  },
+  brandingLogoPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  brandingInfo: {
+    flex: 1,
+  },
+  brandingTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  brandingSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  searchBarContainer: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#1E293B',
+    fontWeight: '500',
   },
   deliveryAddressContainer: {
     flexDirection: 'row',
@@ -1170,8 +1397,8 @@ const styles = StyleSheet.create({
     color: '#1E293B',
   },
   deliveryToggle: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 30,
     padding: 6,
     marginBottom: 12,
   },
@@ -1180,24 +1407,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 12,
+    paddingVertical: 12,
+    borderRadius: 24,
     gap: 8,
   },
   toggleOptionActive: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.1)',
     elevation: 4,
   },
   toggleOptionText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#64748B',
+    color: '#6B7280',
   },
   toggleOptionTextActive: {
     color: '#FFFFFF',
+    fontWeight: '700',
   },
   branchList: {
     flex: 1,
@@ -1282,28 +1507,23 @@ const styles = StyleSheet.create({
   categoryItem: {
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 24,
-    backgroundColor: '#F8FAFC',
+    borderRadius: 30,
+    backgroundColor: '#F3F4F6',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderColor: '#E5E7EB',
   },
   categoryItemActive: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: TURQUOISE_COLOR,
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
+    borderWidth: 0,
     elevation: 6,
   },
   categoryText: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#64748B',
+    fontWeight: '500',
+    color: '#4B5563',
+  },
+  categoryTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   menuContainer: {
     flex: 1,
@@ -1327,90 +1547,92 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     marginBottom: 16,
-    padding: 16,
+    padding: 18,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.08)',
+    elevation: 2,
   },
   menuItemImage: {
-    width: 80,
-    height: 80,
+    width: 88,
+    height: 88,
     borderRadius: 12,
-    resizeMode: 'cover',
   },
   menuItemContent: {
     flex: 1,
   },
   menuItemTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1E293B',
+    fontWeight: '700',
+    color: '#1F2937',
     marginBottom: 4,
   },
   menuItemDescription: {
-    fontSize: 12,
-    color: '#64748B',
-    lineHeight: 16,
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
     marginBottom: 8,
   },
   menuItemPrice: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 4,
   },
   quantitySelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 8,
-    gap: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 24,
+    padding: 4,
+    gap: 12,
   },
   quantityButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.1)',
     elevation: 2,
   },
   quantityText: {
-    fontSize: 14,
-    fontWeight: '600',
-    minWidth: 60,
+    fontSize: 16,
+    fontWeight: '700',
+    minWidth: 20,
     textAlign: 'center',
+    color: '#1F2937',
   },
-  floatingCartContainer: {
+  floatingCartFab: {
     position: 'absolute',
     bottom: 90,
-    left: 16,
-    right: 16,
+    left: 20,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.3)',
+    elevation: 8,
     zIndex: 10,
   },
-  floatingCart: {
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  floatingCartContent: {
-    alignItems: 'center',
+  floatingCartFabBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#FFFFFF',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 4,
     justifyContent: 'center',
-    gap: 8,
+    alignItems: 'center',
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.2)',
+    elevation: 4,
   },
-  floatingCartText: {
-    color: '#FFFFFF',
-    fontSize: 16,
+  floatingCartFabBadgeText: {
+    fontSize: 12,
     fontWeight: 'bold',
   },
   offersContainer: {
@@ -1670,10 +1892,12 @@ const styles = StyleSheet.create({
   bottomNav: {
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#E9ECEF',
+    borderColor: '#E5E7EB',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: 24,
     justifyContent: 'space-around',
+    boxShadow: '0px -4px 10px rgba(0, 0, 0, 0.05)',
   },
   bottomNavItem: {
     alignItems: 'center',
@@ -1681,7 +1905,8 @@ const styles = StyleSheet.create({
   },
   bottomNavText: {
     fontSize: 12,
-    color: '#94A3B8',
+    color: '#6B7280',
+    fontWeight: '500',
   },
   // Splash Screen Styles
   splashContainer: {
@@ -1979,5 +2204,158 @@ const styles = StyleSheet.create({
     color: '#DC3545',
     fontWeight: '600',
   },
+  cartModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  cartModalBackdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  cartModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '90%',
+    paddingBottom: 24,
+  },
+  cartModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  cartModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  cartModalItemsList: {
+    paddingHorizontal: 24,
+    maxHeight: '60%',
+  },
+  cartModalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  cartModalItemInfo: {
+    flex: 1,
+    paddingHorizontal: 12,
+  },
+  cartModalItemTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  cartModalItemPrice: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  cartModalItemStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 20,
+    padding: 4,
+    gap: 12,
+  },
+  cartModalItemButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.05)',
+    elevation: 2,
+  },
+  cartModalItemQuantity: {
+    fontSize: 16,
+    fontWeight: '700',
+    minWidth: 20,
+    textAlign: 'center',
+    color: '#1E293B',
+  },
+  cartModalNotesContainer: {
+    marginTop: 20,
+    marginBottom: 24,
+  },
+  cartModalNotesLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#475569',
+    marginBottom: 8,
+  },
+  cartModalNotesInput: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 15,
+    color: '#1E293B',
+    minHeight: 80,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  cartModalSummary: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    gap: 12,
+  },
+  cartModalSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  cartModalSummaryLabel: {
+    fontSize: 15,
+    color: '#64748B',
+  },
+  cartModalSummaryValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1E293B',
+  },
+  cartModalSummaryTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  cartModalSummaryTotalLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  cartModalSummaryTotalValue: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  cartModalFooter: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+  },
+  cartCheckoutButton: {
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartCheckoutButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
 });
-
