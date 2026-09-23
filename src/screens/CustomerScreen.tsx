@@ -115,6 +115,9 @@ export default function CustomerScreen() {
   const [isCartModalVisible, setIsCartModalVisible] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+  const [successOrderNumber, setSuccessOrderNumber] = useState<string | null>(null);
   const [gender, setGender] = useState('ذكر');
   const hasRequestedPermissions = useRef(false);
   const insets = useSafeAreaInsets();
@@ -454,24 +457,61 @@ export default function CustomerScreen() {
     );
   };
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (!customerName.trim() || !customerPhone.trim()) {
-      RNAlert.alert(
-        getText('بيانات مفقودة', 'Missing Information'),
-        getText('الرجاء إدخال اسمك ورقم جوالك لإتمام الطلب.', 'Please enter your name and phone number to complete the order.')
-      );
+      RNAlert.alert('تنبيه', 'يرجى إدخال الاسم ورقم الجوال');
       return;
     }
 
-    // Success
-    RNAlert.alert(
-      getText('تم الطلب بنجاح!', 'Order Placed Successfully!'),
-      getText('سيتم تحضير طلبك قريباً.', 'Your order will be prepared shortly.')
-    );
+    const saudiPhoneRegex = /^05\d{8}$/;
+    if (!saudiPhoneRegex.test(customerPhone.trim())) {
+      setPhoneError('الرجاء إدخال رقم جوال سعودي صحيح (مثال: 05XXXXXXXX)');
+      return;
+    }
 
-    // Clear cart and close modal
-    setCart([]);
-    setIsCartModalVisible(false);
+    setPhoneError('');
+
+    try {
+      setIsSubmitting(true);
+
+      const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
+      const total = subtotal + deliveryFee;
+
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .insert([{
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          total_amount: total,
+          delivery_mode: deliveryMode
+        }])
+        .select()
+        .single();
+
+      if (orderError) throw new Error(orderError.message);
+
+      const orderItems = cart.map(item => ({
+        order_id: order.id,
+        menu_item_id: item.id,
+        quantity: item.quantity,
+        unit_price: item.price
+      }));
+
+      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
+      if (itemsError) throw new Error(itemsError.message);
+
+      setCart([]);
+      setCustomerName('');
+      setCustomerPhone('');
+      setIsCartModalVisible(false);
+      setSuccessOrderNumber(String(order.display_id));
+    } catch (error: any) {
+      console.error(error);
+      alert('حدث خطأ: ' + error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const renderCartModal = () => {
@@ -542,16 +582,28 @@ export default function CustomerScreen() {
               {/* ORDER SUMMARY */}
               <View style={{ paddingVertical: 15, paddingHorizontal: 10, borderTopWidth: 1, borderColor: '#E5E7EB', marginVertical: 15, backgroundColor: '#FAFAFA', borderRadius: 8 }}>
                 <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={{ color: '#4B5563', fontSize: 14 }}>{isRTL ? 'المجموع الفرعي' : 'Subtotal'}</Text>
-                  <Text style={{ color: '#4B5563', fontSize: 14 }}>{subtotal} {isRTL ? 'ر.س' : 'SAR'}</Text>
+                  <Text style={{ color: '#4B5563', fontSize: 14 }}>
+                    {isRTL ? 'المجموع الفرعي' : 'Subtotal'}
+                  </Text>
+                  <Text style={{ color: '#4B5563', fontSize: 14 }}>
+                    {`${subtotal} ${isRTL ? 'ر.س' : 'SAR'}`}
+                  </Text>
                 </View>
                 <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={{ color: '#4B5563', fontSize: 14 }}>{isRTL ? 'رسوم التوصيل' : 'Delivery Fee'}</Text>
-                  <Text style={{ color: '#4B5563', fontSize: 14 }}>{deliveryFee} {isRTL ? 'ر.س' : 'SAR'}</Text>
+                  <Text style={{ color: '#4B5563', fontSize: 14 }}>
+                    {isRTL ? 'رسوم التوصيل' : 'Delivery Fee'}
+                  </Text>
+                  <Text style={{ color: '#4B5563', fontSize: 14 }}>
+                    {`${deliveryFee} ${isRTL ? 'ر.س' : 'SAR'}`}
+                  </Text>
                 </View>
                 <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: '#E5E7EB' }}>
-                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: primaryColor }}>{isRTL ? 'الإجمالي' : 'Total'}</Text>
-                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: primaryColor }}>{total} {isRTL ? 'ر.س' : 'SAR'}</Text>
+                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: primaryColor }}>
+                    {isRTL ? 'الإجمالي' : 'Total'}
+                  </Text>
+                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: primaryColor }}>
+                    {`${total} ${isRTL ? 'ر.س' : 'SAR'}`}
+                  </Text>
                 </View>
               </View>
 
@@ -568,13 +620,18 @@ export default function CustomerScreen() {
                   onChangeText={setCustomerName}
                 />
                 <TextInput
-                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48 }]}
-                  placeholder={getText('رقم الجوال', 'Phone Number')}
+                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48, borderColor: phoneError ? '#EF4444' : '#E5E7EB' }]}
+                  placeholder={getText('رقم الجوال (05XXXXXXXX)', 'Phone Number (05XXXXXXXX)')}
                   placeholderTextColor="#9CA3AF"
                   keyboardType="phone-pad"
                   value={customerPhone}
-                  onChangeText={setCustomerPhone}
+                  onChangeText={(text) => { setCustomerPhone(text); if (phoneError) setPhoneError(''); }}
                 />
+                {phoneError ? (
+                  <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4, textAlign: isRTL ? 'right' : 'left' }}>
+                    {phoneError}
+                  </Text>
+                ) : null}
               </View>
 
               {/* Order Notes */}
@@ -590,30 +647,21 @@ export default function CustomerScreen() {
                 />
               </View>
 
-              {/* Summary */}
-              <View style={styles.cartModalSummary}>
-                <View style={[styles.cartModalSummaryRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                  <Text style={styles.cartModalSummaryLabel}>{getText('المجموع الفرعي', 'Subtotal')}</Text>
-                  <Text style={styles.cartModalSummaryValue}>{totalPrice} {getText('ر.س', 'SAR')}</Text>
-                </View>
-                <View style={[styles.cartModalSummaryRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                  <Text style={styles.cartModalSummaryLabel}>{getText('رسوم التوصيل', 'Delivery Fee')}</Text>
-                  <Text style={styles.cartModalSummaryValue}>{deliveryFee} {getText('ر.س', 'SAR')}</Text>
-                </View>
-                <View style={[styles.cartModalSummaryTotalRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                  <Text style={styles.cartModalSummaryTotalLabel}>{getText('الإجمالي', 'Total')}</Text>
-                  <Text style={[styles.cartModalSummaryTotalValue, { color: primaryColor }]}>{total} {getText('ر.س', 'SAR')}</Text>
-                </View>
-              </View>
+
             </ScrollView>
 
             {/* Checkout Button */}
             <View style={styles.cartModalFooter}>
               <TouchableOpacity
-                style={[styles.cartCheckoutButton, { backgroundColor: primaryColor }]}
+                style={[styles.cartCheckoutButton, { backgroundColor: primaryColor }, isSubmitting && { opacity: 0.7 }]}
                 onPress={handlePlaceOrder}
+                disabled={isSubmitting}
               >
-                <Text style={styles.cartCheckoutButtonText}>{getText('تنفيذ الطلب', 'Place Order')}</Text>
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.cartCheckoutButtonText}>{getText('تنفيذ الطلب', 'Place Order')}</Text>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -622,6 +670,63 @@ export default function CustomerScreen() {
       </Modal>
     );
   };
+
+  const renderSuccessModal = () => (
+    <Modal
+      visible={successOrderNumber !== null}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setSuccessOrderNumber(null)}
+    >
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <View style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 24,
+          padding: 32,
+          alignItems: 'center',
+          width: '100%',
+          maxWidth: 360,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.15,
+          shadowRadius: 24,
+          elevation: 10,
+        }}>
+          {/* Checkmark Icon */}
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#DCFCE7', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+            <Text style={{ fontSize: 40 }}>{'✅'}</Text>
+          </View>
+
+          {/* Title */}
+          <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1E293B', marginBottom: 8, textAlign: 'center' }}>
+            {getText('تم إرسال طلبك بنجاح!', 'Order Placed Successfully!')}
+          </Text>
+
+          {/* Subtitle */}
+          <Text style={{ fontSize: 14, color: '#64748B', marginBottom: 6, textAlign: 'center' }}>
+            {getText('رقم طلبك هو', 'Your order number is')}
+          </Text>
+
+          {/* Order ID */}
+          <View style={{ backgroundColor: '#F1F5F9', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 24, marginBottom: 28 }}>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: primaryColor, letterSpacing: 1, textAlign: 'center' }}>
+              {successOrderNumber}
+            </Text>
+          </View>
+
+          {/* Close Button */}
+          <TouchableOpacity
+            style={{ backgroundColor: primaryColor, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 48, width: '100%', alignItems: 'center' }}
+            onPress={() => setSuccessOrderNumber(null)}
+          >
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
+              {getText('حسناً', 'Great!')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
 
   const renderMenuTab = () => (
     <>
@@ -884,7 +989,7 @@ export default function CustomerScreen() {
             {restaurant?.name || 'SmartFlow Restaurant'}
           </Text>
           <Text style={[styles.brandingSubtitle, { textAlign: isRTL ? 'right' : 'left' }]}>
-            ⭐ 4.8 • {getText('مفتوح', 'Open')} • 30 {getText('دقيقة', 'mins')}
+            {`⭐ 4.8 • ${getText('مفتوح', 'Open')} • 30 ${getText('دقيقة', 'mins')}`}
           </Text>
         </View>
       </View>
@@ -1307,6 +1412,9 @@ export default function CustomerScreen() {
 
       {/* Cart Checkout Modal */}
       {renderCartModal()}
+
+      {/* Order Success Modal */}
+      {renderSuccessModal()}
     </SafeAreaView>
   );
 }
