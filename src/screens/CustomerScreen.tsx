@@ -27,6 +27,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
+import { useRestaurant } from '../contexts/RestaurantContext';
 import * as Location from 'expo-location';
 
 // Hardcoded restaurant ID for testing
@@ -73,6 +74,11 @@ interface MenuItem {
 
 interface CartItem extends MenuItem {
   quantity: number;
+  cart_item_id?: string;
+  weight?: number;
+  selected_options?: Record<string, any>;
+  final_price?: number;
+  notes?: string;
 }
 
 interface Region {
@@ -85,10 +91,11 @@ interface Region {
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function CustomerScreen() {
+  const { restaurantData, isLoading: isRestaurantLoading } = useRestaurant();
   // ALL HOOKS MUST BE DECLARED FIRST - Strict Rules of Hooks
   const [restaurant, setRestaurant] = useState<Restaurant | null>({
     id: RESTAURANT_ID,
-    name: 'SmartFlow Restaurant',
+    name: restaurantData?.restaurant_name || 'SmartFlow Restaurant',
     primary_color: TURQUOISE_COLOR,
   });
   const [categories, setCategories] = useState<Category[]>([{ id: 'all', name: 'الكل' }]);
@@ -121,14 +128,22 @@ export default function CustomerScreen() {
   const [checkoutDeliveryAddress, setCheckoutDeliveryAddress] = useState('');
   const [pickupBranch, setPickupBranch] = useState('فرع الصفا');
   const [promoCode, setPromoCode] = useState('');
+  const [discount, setDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'applepay' | 'mada' | 'card'>('cash');
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [selectedMeal, setSelectedMeal] = useState<any | null>(null);
+  const [selectedSize, setSelectedSize] = useState<string>('وسط');
+  const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
+  const [specialInstructions, setSpecialInstructions] = useState<string>('');
   const [cardName, setCardName] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCVV, setCardCVV] = useState('');
   const [cardError, setCardError] = useState('');
   const [gender, setGender] = useState('ذكر');
+  const [mealOptions, setMealOptions] = useState<any[]>([]);
+  const [selectedChoices, setSelectedChoices] = useState<Record<string, any>>({});
+  const [mealQuantity, setMealQuantity] = useState<number>(1);
   const hasRequestedPermissions = useRef(false);
   const insets = useSafeAreaInsets();
 
@@ -136,6 +151,53 @@ export default function CustomerScreen() {
   const isRTL = language === 'ar';
 
   // ALL USEEFFECT HOOKS MUST BE DECLARED BEFORE ANY CONDITIONAL RETURNS
+  useEffect(() => {
+    if (selectedMeal) {
+      setMealQuantity(selectedMeal?.is_weighted ? 0.5 : 1);
+      setSelectedChoices({});
+      setMealOptions([]);
+
+      const fetchOptions = async () => {
+        try {
+          // Step 1: Fetch groups using item_id
+          console.log("Meal ID being queried:", selectedMeal.id);
+          const { data: groups, error: groupErr } = await supabase
+            .from('option_groups')
+            .select('*')
+            .eq('menu_item_id', selectedMeal.id);
+
+          console.log("Fetched groups:", groups, "Error:", groupErr);
+
+          if (groups && groups.length > 0) {
+            // Step 2: Fetch choices for all matched groups
+            const groupIds = groups.map((g: any) => g.id);
+            const { data: choices, error: choiceErr } = await supabase
+              .from('option_choices')
+              .select('*')
+              .in('group_id', groupIds);
+
+            console.log("Fetched choices:", choices, "Error:", choiceErr);
+
+            // Step 3: Combine them
+            const structuredOptions = groups.map((g: any) => ({
+              ...g,
+              choices: choices ? choices.filter((c: any) => c.group_id === g.id) : []
+            }));
+
+            setMealOptions(structuredOptions);
+          } else {
+            setMealOptions([]);
+          }
+
+        } catch (error) {
+          console.error("Error fetching options:", error);
+        }
+      };
+
+      fetchOptions();
+    }
+  }, [selectedMeal]);
+
   useEffect(() => {
     fetchData();
     // requestPermissions();
@@ -309,41 +371,65 @@ export default function CustomerScreen() {
     ? menuItems
     : menuItems.filter(item => item.category_id === selectedCategory || item.category === selectedCategory);
 
-  const addToCart = (item: MenuItem) => {
+  const addToCart = (item: CartItem | MenuItem) => {
     setCart(prevCart => {
-      const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
+      if ('cart_item_id' in item && item.cart_item_id) {
+        const existingItem = prevCart.find(cartItem => cartItem.cart_item_id === item.cart_item_id);
+        if (existingItem) {
+          return prevCart.map(cartItem =>
+            cartItem.cart_item_id === item.cart_item_id
+              ? { ...cartItem, quantity: cartItem.quantity + ('quantity' in item ? item.quantity : 1) }
+              : cartItem
+          );
+        }
+        return [...prevCart, { ...item, quantity: 'quantity' in item ? item.quantity : 1 } as CartItem];
+      }
+
+      const existingItem = prevCart.find(cartItem => cartItem.id === item.id && !cartItem.cart_item_id);
       if (existingItem) {
         return prevCart.map(cartItem =>
-          cartItem.id === item.id
+          cartItem.id === item.id && !cartItem.cart_item_id
             ? { ...cartItem, quantity: cartItem.quantity + 1 }
             : cartItem
         );
       }
-      return [...prevCart, { ...item, quantity: 1 }];
+      return [...prevCart, { ...item, quantity: 1 } as CartItem];
     });
   };
 
-  const removeFromCart = (itemId: string) => {
+  const removeFromCart = (itemId: string, cartItemId?: string) => {
     setCart(prevCart => {
-      const existingItem = prevCart.find(cartItem => cartItem.id === itemId);
+      if (cartItemId) {
+        const existingItem = prevCart.find(cartItem => cartItem.cart_item_id === cartItemId);
+        if (existingItem && existingItem.quantity > 1) {
+          return prevCart.map(cartItem =>
+            cartItem.cart_item_id === cartItemId
+              ? { ...cartItem, quantity: cartItem.quantity - 1 }
+              : cartItem
+          );
+        }
+        return prevCart.filter(cartItem => cartItem.cart_item_id !== cartItemId);
+      }
+
+      const existingItem = prevCart.find(cartItem => cartItem.id === itemId && !cartItem.cart_item_id);
       if (existingItem && existingItem.quantity > 1) {
         return prevCart.map(cartItem =>
-          cartItem.id === itemId
+          cartItem.id === itemId && !cartItem.cart_item_id
             ? { ...cartItem, quantity: cartItem.quantity - 1 }
             : cartItem
         );
       }
-      return prevCart.filter(cartItem => cartItem.id !== itemId);
+      return prevCart.filter(cartItem => !(cartItem.id === itemId && !cartItem.cart_item_id));
     });
   };
 
   const getItemQuantity = (itemId: string) => {
-    const item = cart.find(cartItem => cartItem.id === itemId);
+    const item = cart.find(cartItem => cartItem.id === itemId && !cartItem.cart_item_id);
     return item?.quantity || 0;
   };
 
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const totalPrice = cart.reduce((sum, item) => sum + ((item.final_price || item.price) * item.quantity), 0);
 
   const getText = (ar: string, en: string) => isRTL ? ar : en;
 
@@ -404,40 +490,67 @@ export default function CustomerScreen() {
 
     return (
       <View style={[styles.menuItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-        <Image source={{ uri: item.image_url }} style={styles.menuItemImage} resizeMode="cover" />
-        <View style={[styles.menuItemContent, isRTL ? { marginRight: 0, marginLeft: 12 } : { marginRight: 12, marginLeft: 0 }]}>
-          <Text style={[styles.menuItemTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{itemName}</Text>
-          <Text style={[styles.menuItemDescription, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={2}>
-            {itemDesc}
-          </Text>
-          <Text style={[styles.menuItemPrice, { color: primaryColor, textAlign: isRTL ? 'right' : 'left' }]}>
-            {item.price} {getText('ر.س', 'SAR')}
-          </Text>
-        </View>
-        <View style={[styles.quantitySelector, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+        <TouchableOpacity
+          style={{ flex: 1, flexDirection: isRTL ? 'row-reverse' : 'row' }}
+          onPress={() => {
+            setSelectedMeal(item);
+            setSelectedSize('وسط');
+            setSelectedAddons([]);
+            setSpecialInstructions('');
+          }}
+        >
+          <Image source={{ uri: item.image_url }} style={styles.menuItemImage} resizeMode="cover" />
+          <View style={[styles.menuItemContent, isRTL ? { marginRight: 0, marginLeft: 12 } : { marginRight: 12, marginLeft: 0 }]}>
+            <Text style={[styles.menuItemTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{itemName}</Text>
+            <Text style={[styles.menuItemDescription, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={2}>
+              {itemDesc}
+            </Text>
+            <Text style={[styles.menuItemPrice, { color: primaryColor, textAlign: isRTL ? 'right' : 'left' }]}>
+              {item.price} {getText('ر.س', 'SAR')}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        {((item as any).is_weighted || (item as any).has_options) ? (
           <TouchableOpacity
-            style={styles.quantityButton}
-            onPress={() => addToCart(item)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={{ backgroundColor: primaryColor, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, justifyContent: 'center' }}
+            onPress={() => {
+              setSelectedMeal(item);
+              setSelectedSize('وسط');
+              setSelectedAddons([]);
+              setSpecialInstructions('');
+            }}
           >
-            <Ionicons name="add" size={18} color={primaryColor} />
+            <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 14 }}>
+              {getText('تخصيص', 'Customize')}
+            </Text>
           </TouchableOpacity>
-          <Text style={[styles.quantityText, { color: primaryColor }]}>
-            {quantity > 0 ? quantity : 0}
-          </Text>
-          <TouchableOpacity
-            style={styles.quantityButton}
-            onPress={() => removeFromCart(item.id)}
-            disabled={quantity === 0}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons
-              name="remove"
-              size={18}
-              color={quantity > 0 ? primaryColor : '#9CA3AF'}
-            />
-          </TouchableOpacity>
-        </View>
+        ) : (
+          <View style={[styles.quantitySelector, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+            <TouchableOpacity
+              style={styles.quantityButton}
+              onPress={() => addToCart(item)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="add" size={18} color={primaryColor} />
+            </TouchableOpacity>
+            <Text style={[styles.quantityText, { color: primaryColor }]}>
+              {quantity > 0 ? quantity : 0}
+            </Text>
+            <TouchableOpacity
+              style={styles.quantityButton}
+              onPress={() => removeFromCart(item.id)}
+              disabled={quantity === 0}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name="remove"
+                size={18}
+                color={quantity > 0 ? primaryColor : '#9CA3AF'}
+              />
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     );
   };
@@ -494,24 +607,24 @@ export default function CustomerScreen() {
         setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
         return;
       }
-      
+
       const [expMonth, expYear] = cardExpiry.split('/').map(Number);
       const currentDate = new Date();
       const currentMonth = currentDate.getMonth() + 1;
       const currentYear = currentDate.getFullYear() % 100;
-      
+
       if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
         setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
         return;
       }
-      
+
       setCardError('');
     }
 
     try {
       setIsSubmitting(true);
 
-      const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const subtotal = cart.reduce((sum, item) => sum + ((item.final_price || item.price) * item.quantity), 0);
       const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
       const total = subtotal + deliveryFee;
 
@@ -552,9 +665,8 @@ export default function CustomerScreen() {
   };
 
   const renderCartModal = () => {
-    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const subtotal = cart.reduce((sum, item) => sum + ((item.final_price || item.price) * item.quantity), 0);
     const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
-    const discount = 0; // promo code discount — mock 0 for now
     const total = subtotal + deliveryFee - discount;
 
     const sectionTitle = (ar: string, en: string) => (
@@ -612,7 +724,7 @@ export default function CustomerScreen() {
               <View style={{ backgroundColor: '#F9FAFB', borderRadius: 14, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#E5E7EB' }}>
                 {cart.map((item, idx) => (
                   <View
-                    key={item.id}
+                    key={item.cart_item_id || item.id}
                     style={[{
                       flexDirection: isRTL ? 'row-reverse' : 'row',
                       alignItems: 'center',
@@ -623,9 +735,23 @@ export default function CustomerScreen() {
                     <View style={[{ flex: 1 }, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
                       <Text style={{ fontSize: 14, fontWeight: '600', color: '#1E293B', textAlign: isRTL ? 'right' : 'left' }} numberOfLines={1}>
                         {language === 'en' ? (item.name_en || item.name || item.name_ar || item.title) : (item.name || item.name_ar || item.title)}
+                        {item.weight ? ` (${item.weight} ${getText('كجم', 'kg')})` : ''}
                       </Text>
-                      <Text style={{ fontSize: 13, color: primaryColor, marginTop: 2 }}>
-                        {`${item.price} ${getText('ر.س', 'SAR')}`}
+
+                      {item.selected_options && Object.keys(item.selected_options).length > 0 && (
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, textAlign: isRTL ? 'right' : 'left' }}>
+                          {Object.values(item.selected_options).map(opt => Array.isArray(opt) ? opt.map(o => o.name_ar || o.name).join(', ') : opt.name_ar || opt.name).filter(Boolean).join(', ')}
+                        </Text>
+                      )}
+
+                      {item.notes ? (
+                        <Text style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2, textAlign: isRTL ? 'right' : 'left' }}>
+                          {getText('ملاحظة:', 'Note:')} {item.notes}
+                        </Text>
+                      ) : null}
+
+                      <Text style={{ fontSize: 13, color: primaryColor, marginTop: 4 }}>
+                        {`${item.final_price || item.price} ${getText('ر.س', 'SAR')}`}
                       </Text>
                     </View>
                     <View style={[{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 8 }]}>
@@ -638,7 +764,7 @@ export default function CustomerScreen() {
                       <Text style={{ fontSize: 15, fontWeight: '700', color: '#1E293B', minWidth: 20, textAlign: 'center' }}>{item.quantity}</Text>
                       <TouchableOpacity
                         style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center' }}
-                        onPress={() => removeFromCart(item.id)}
+                        onPress={() => removeFromCart(item.id, item.cart_item_id)}
                       >
                         <Ionicons name="remove" size={14} color="#EF4444" />
                       </TouchableOpacity>
@@ -1233,7 +1359,7 @@ export default function CustomerScreen() {
           {/* Section 2: Settings */}
           {sectionTitle('الإعدادات', 'Settings')}
           <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
-            {renderSettingItem('language-outline', 'لغة التطبيق', 'App Language', () => {}, languageToggle)}
+            {renderSettingItem('language-outline', 'لغة التطبيق', 'App Language', () => { }, languageToggle)}
             {renderSettingItem('notifications-outline', 'إعدادات الإشعارات', 'Notifications Settings', () => setActiveSection('Notifications'), undefined, true)}
           </View>
 
@@ -1257,6 +1383,222 @@ export default function CustomerScreen() {
 
         </ScrollView>
       </View>
+    );
+  };
+
+  const renderMealCustomizationModal = () => {
+    if (!selectedMeal) return null;
+
+    const itemName = language === 'en'
+      ? (selectedMeal?.name_en || selectedMeal?.name || selectedMeal?.name_ar || selectedMeal?.title || '')
+      : (selectedMeal?.name || selectedMeal?.name_ar || selectedMeal?.title || '');
+
+    const itemDesc = language === 'en'
+      ? (selectedMeal?.description_en || selectedMeal?.description || '')
+      : (selectedMeal?.description || '');
+
+    const basePrice = selectedMeal?.price || 0;
+
+    let extraPrice = 0;
+    Object.values(selectedChoices).forEach(choice => {
+      if (Array.isArray(choice)) {
+        choice.forEach(c => { extraPrice += (c?.extra_price || 0); });
+      } else if (choice) {
+        extraPrice += (choice?.extra_price || 0);
+      }
+    });
+
+    const totalPrice = (basePrice + extraPrice) * mealQuantity;
+
+    const handleChoiceSelect = (group: any, choice: any) => {
+      const isMulti = group?.max_choices > 1;
+
+      if (isMulti) {
+        setSelectedChoices(prev => {
+          const current = Array.isArray(prev[group.id]) ? prev[group.id] : [];
+          const exists = current.find((c: any) => c.id === choice.id);
+          if (exists) {
+            return { ...prev, [group.id]: current.filter((c: any) => c.id !== choice.id) };
+          } else {
+            return { ...prev, [group.id]: [...current, choice] };
+          }
+        });
+      } else {
+        setSelectedChoices(prev => ({ ...prev, [group.id]: choice }));
+      }
+    };
+
+    return (
+      <Modal
+        visible={!!selectedMeal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setSelectedMeal(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: SCREEN_HEIGHT * 0.9 }}>
+            {selectedMeal && (
+              <>
+                {/* Header: Title + Close Button */}
+                <View style={{ flexDirection: isRTL ? 'row' : 'row-reverse', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <TouchableOpacity
+                    onPress={() => setSelectedMeal(null)}
+                    style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' }}
+                  >
+                    <Ionicons name="close" size={20} color="#64748B" />
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1E293B', flex: 1, textAlign: isRTL ? 'right' : 'left', marginHorizontal: 10 }}>
+                    {itemName}
+                  </Text>
+                </View>
+
+                <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+                  {itemDesc ? (
+                    <Text style={{ fontSize: 15, color: '#64748B', textAlign: isRTL ? 'right' : 'left', marginBottom: 20 }}>
+                      {itemDesc}
+                    </Text>
+                  ) : null}
+
+
+                  {/* Quantity/Weight Section */}
+                  <View style={{ marginBottom: 24, flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1E293B' }}>
+                      {selectedMeal?.is_weighted ? getText('الكمية (كجم)', 'Quantity (kg)') : getText('الكمية', 'Quantity')}
+                    </Text>
+                    <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 12, padding: 4 }}>
+                      <TouchableOpacity
+                        style={{ backgroundColor: '#FFF', borderRadius: 8, padding: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 }}
+                        onPress={() => setMealQuantity(Math.max(selectedMeal?.is_weighted ? 0.5 : 1, mealQuantity - (selectedMeal?.is_weighted ? 0.5 : 1)))}
+                      >
+                        <Ionicons name="remove" size={20} color={primaryColor} />
+                      </TouchableOpacity>
+                      <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1E293B', marginHorizontal: 16 }}>
+                        {`${mealQuantity}`}
+                      </Text>
+                      <TouchableOpacity
+                        style={{ backgroundColor: '#FFF', borderRadius: 8, padding: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 }}
+                        onPress={() => setMealQuantity(mealQuantity + (selectedMeal?.is_weighted ? 0.5 : 1))}
+                      >
+                        <Ionicons name="add" size={20} color={primaryColor} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* Dynamic Options Section */}
+                  {mealOptions.length > 0 ? (
+                    <View style={{ marginBottom: 20 }}>
+                      {mealOptions.map((group: any, index: number) => {
+                        const groupName = group?.name || group?.name_ar || group?.name_en || '';
+                        return (
+                          <View key={String(index)} style={{ marginBottom: 20 }}>
+                            <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1E293B', textAlign: isRTL ? 'right' : 'left', marginBottom: 10 }}>
+                              {groupName}
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                              {group.choices && group.choices.map((choice: any, cIndex: number) => {
+                                const choiceName = choice?.name || choice?.name_ar || choice?.name_en || '';
+                                const extraPriceAmt = choice?.extra_price || 0;
+                                const isSelected = selectedChoices[group.id]?.id === choice.id ||
+                                  (Array.isArray(selectedChoices[group.id]) &&
+                                    selectedChoices[group.id].some((c: any) => c.id === choice.id));
+                                return (
+                                  <TouchableOpacity
+                                    key={String(cIndex)}
+                                    onPress={() => {
+                                      const isMulti = group?.max_choices > 1;
+                                      if (isMulti) {
+                                        setSelectedChoices((prev: any) => {
+                                          const current = Array.isArray(prev[group.id]) ? prev[group.id] : [];
+                                          const exists = current.find((c: any) => c.id === choice.id);
+                                          return {
+                                            ...prev,
+                                            [group.id]: exists
+                                              ? current.filter((c: any) => c.id !== choice.id)
+                                              : [...current, choice]
+                                          };
+                                        });
+                                      } else {
+                                        setSelectedChoices((prev: any) => ({ ...prev, [group.id]: choice }));
+                                      }
+                                    }}
+                                    style={{
+                                      paddingVertical: 8,
+                                      paddingHorizontal: 18,
+                                      borderWidth: 2,
+                                      borderColor: isSelected ? primaryColor : '#CBD5E1',
+                                      borderRadius: 20,
+                                      backgroundColor: isSelected ? primaryColor : '#FFF',
+                                    }}
+                                  >
+                                    <Text style={{ color: isSelected ? '#FFF' : '#334155', fontWeight: isSelected ? 'bold' : 'normal', textAlign: 'center' }}>
+                                      {choiceName}{extraPriceAmt > 0 ? ` (+${extraPriceAmt})` : ''}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <View style={{ paddingVertical: 16, paddingHorizontal: 12, backgroundColor: '#F8FAFC', borderRadius: 12, marginBottom: 20 }}>
+                      <Text style={{ color: '#94A3B8', fontSize: 14, textAlign: isRTL ? 'right' : 'left' }}>
+                        {getText('لا توجد خيارات إضافية لتخصيص هذا الصنف', 'No extra customization options for this item')}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Special Instructions */}
+                  <View style={{ marginBottom: 40 }}>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1E293B', textAlign: isRTL ? 'right' : 'left', marginBottom: 12 }}>
+                      {getText('ملاحظات خاصة', 'Special Instructions')}
+                    </Text>
+                    <TextInput
+                      style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 80 }]}
+                      placeholder={getText('مثال: بدون بصل، زيادة صوص...', 'e.g. No onions, extra sauce...')}
+                      placeholderTextColor="#9CA3AF"
+                      multiline
+                      value={specialInstructions}
+                      onChangeText={setSpecialInstructions}
+                    />
+                  </View>
+                </ScrollView>
+
+                {/* Sticky Add to Cart Footer */}
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, borderTopWidth: 1, borderTopColor: '#F1F5F9', backgroundColor: '#FFF', borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }}>
+                  <TouchableOpacity
+                    style={{ backgroundColor: primaryColor, borderRadius: 12, paddingVertical: 16, flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', paddingHorizontal: 20, alignItems: 'center' }}
+                    onPress={() => {
+                      const payload = {
+                        ...selectedMeal,
+                        cart_item_id: `${selectedMeal.id}-${Date.now()}`,
+                        weight: selectedMeal.is_weighted ? mealQuantity : undefined,
+                        quantity: selectedMeal.is_weighted ? 1 : mealQuantity,
+                        selected_options: selectedChoices,
+                        final_price: selectedMeal.is_weighted ? totalPrice : basePrice + extraPrice,
+                        notes: specialInstructions
+                      };
+                      addToCart(payload);
+                      setSelectedMeal(null);
+                      setMealQuantity(1);
+                      setSelectedChoices({});
+                      setSpecialInstructions('');
+                    }}
+                  >
+                    <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>
+                      {getText('إضافة للسلة', 'Add to Cart')}
+                    </Text>
+                    <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>
+                      {`${totalPrice} ${getText('ر.س', 'SAR')}`}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     );
   };
 
@@ -1389,7 +1731,7 @@ export default function CustomerScreen() {
       </View>
 
       {/* Delivery Address Display */}
-      {deliveryMode === 'delivery' && deliveryAddress && (
+      {deliveryMode === 'delivery' && !!deliveryAddress && (
         <View style={[styles.deliveryAddressContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
           <Ionicons name="location" size={16} color={primaryColor} />
           <Text style={[styles.deliveryAddressText, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={1}>
@@ -1709,8 +2051,8 @@ export default function CustomerScreen() {
 
           <ScrollView style={styles.policyModalContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.policyText, { textAlign: 'right', writingDirection: 'rtl' }]}>
-              {getText('نحن في شركة SmartFlow نولي خصوصيتك أهمية بالغة.\n\nجمع البيانات: نقوم بجمع معلوماتك الأساسية (الاسم، رقم الجوال، الموقع الدقيق) لضمان توصيل الطلبات بكفاءة.\n\nاستخدام البيانات: تُستخدم بياناتك حصرياً لتحسين تجربة المستخدم ومعالجة الطلبات داخل منصة SmartFlow متعددة المستأجرين.\n\nحماية البيانات: نلتزم التزاماً تاماً بعدم مشاركة أو بيع بياناتك لأي أطراف ثالثة لأغراض تسويقية.\n\nحذف الحساب: يحق للمستخدم طلب حذف حسابه وبياناته نهائياً في أي وقت من خلال إعدادات الملف الشخصي.',
-                'At SmartFlow, we take your privacy seriously.\n\nData Collection: We collect your basic information (name, phone number, precise location) to ensure efficient order delivery.\n\nData Usage: Your data is used exclusively to improve user experience and process orders within the SmartFlow multi-tenant platform.\n\nData Protection: We are fully committed to not sharing or selling your data to any third parties for marketing purposes.\n\nAccount Deletion: Users have the right to request permanent deletion of their account and data at any time through profile settings.')}
+              {getText(`نحن في ${restaurantData?.restaurant_name || 'SmartFlow'} نولي خصوصيتك أهمية بالغة.\n\nجمع البيانات: نقوم بجمع معلوماتك الأساسية (الاسم، رقم الجوال، الموقع الدقيق) لضمان توصيل الطلبات بكفاءة.\n\nاستخدام البيانات: تُستخدم بياناتك حصرياً لتحسين تجربة المستخدم ومعالجة الطلبات داخل منصة SmartFlow متعددة المستأجرين.\n\nحماية البيانات: نلتزم التزاماً تاماً بعدم مشاركة أو بيع بياناتك لأي أطراف ثالثة لأغراض تسويقية.\n\nحذف الحساب: يحق للمستخدم طلب حذف حسابه وبياناته نهائياً في أي وقت من خلال إعدادات الملف الشخصي.`,
+                `At ${restaurantData?.restaurant_name || 'SmartFlow'}, we take your privacy seriously.\n\nData Collection: We collect your basic information (name, phone number, precise location) to ensure efficient order delivery.\n\nData Usage: Your data is used exclusively to improve user experience and process orders within the SmartFlow multi-tenant platform.\n\nData Protection: We are fully committed to not sharing or selling your data to any third parties for marketing purposes.\n\nAccount Deletion: Users have the right to request permanent deletion of their account and data at any time through profile settings.`)}
             </Text>
           </ScrollView>
         </SafeAreaView>
@@ -1736,8 +2078,8 @@ export default function CustomerScreen() {
 
           <ScrollView style={styles.policyModalContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.policyText, { textAlign: 'right', writingDirection: 'rtl' }]}>
-              {getText('مرحباً بك في منصة SmartFlow. باستخدامك للتطبيق، فإنك توافق على الشروط التالية:\n\nوصف الخدمة: تطبيق SmartFlow هو منصة تقنية رائدة تربط بين العملاء والمطاعم لتقديم خدمات الطلب والتوصيل السريع.\n\nآلية الدفع: تعتمد الخدمة حالياً على خيار (الدفع عند الاستلام) أو (الدفع في الفرع). يلتزم العميل التزاماً كاملاً بدفع قيمة الطلب للمندوب أو لمقدم الخدمة.\n\nإخلاء المسؤولية: شركة SmartFlow غير مسؤولة عن جودة أو سلامة الأطعمة المقدمة من المطاعم، ويقتصر دورنا التقني على تسهيل وإدارة عملية الطلب والتوصيل.\n\nيحق لـ SmartFlow تحديث أو تعديل هذه الشروط في أي وقت، ويعتبر استمرارك في استخدام التطبيق موافقة صريحة عليها.',
-                'Welcome to the SmartFlow platform. By using the app, you agree to the following terms:\n\nService Description: The SmartFlow app is a leading technology platform connecting customers with restaurants to provide ordering and fast delivery services.\n\nPayment Mechanism: The service currently relies on (Cash on Delivery) or (Payment at Branch) options. The customer is fully committed to paying the order value to the delivery person or service provider.\n\nDisclaimer: SmartFlow is not responsible for the quality or safety of food provided by restaurants, and our technical role is limited to facilitating and managing the ordering and delivery process.\n\nSmartFlow reserves the right to update or modify these terms at any time, and continued use of the app is considered explicit acceptance of them.')}
+              {getText(`تطبق هذه الشروط والأحكام على جميع مستخدمي تطبيق ${restaurantData?.restaurant_name || 'المطعم'}.\n\nوصف الخدمة: هذا التطبيق هو منصة تقنية رائدة تقدم خدمات الطلب والتوصيل السريع لمنتجات ${restaurantData?.restaurant_name || 'المطعم'}.\n\nآلية الدفع: تعتمد الخدمة حالياً على خيار (الدفع عند الاستلام) أو (الدفع في الفرع). يلتزم العميل التزاماً كاملاً بدفع قيمة الطلب.\n\nإخلاء المسؤولية: يُرجى التواصل معنا في حال وجود أي ملاحظات، ويقتصر دور منصة SmartFlow التقنية على تسهيل وإدارة عملية الطلب والتوصيل.\n\nنحتفظ بالحق في تحديث أو تعديل هذه الشروط في أي وقت، ويعتبر استمرارك في استخدام التطبيق موافقة صريحة عليها.`,
+                `These terms and conditions apply to all users of the ${restaurantData?.restaurant_name || 'Restaurant'} app.\n\nService Description: This app is a leading technology platform providing ordering and fast delivery services for ${restaurantData?.restaurant_name || 'Restaurant'} products.\n\nPayment Mechanism: The service currently relies on (Cash on Delivery) or (Payment at Branch) options. The customer is fully committed to paying the order value.\n\nDisclaimer: Please contact us for any feedback, and the technical role of the SmartFlow platform is limited to facilitating and managing the ordering and delivery process.\n\nWe reserve the right to update or modify these terms at any time, and continued use of the app is considered explicit acceptance of them.`)}
             </Text>
           </ScrollView>
         </SafeAreaView>
@@ -1748,6 +2090,9 @@ export default function CustomerScreen() {
 
       {/* Mock Section Modal */}
       {renderMockSectionModal()}
+
+      {/* Meal Customization Modal */}
+      {renderMealCustomizationModal()}
 
       {/* Order Success Modal */}
       {renderSuccessModal()}
