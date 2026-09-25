@@ -26,6 +26,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../lib/supabase';
 import { useRestaurant } from '../contexts/RestaurantContext';
 import * as Location from 'expo-location';
@@ -102,6 +103,7 @@ export default function CustomerScreen() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartReady, setCartReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('menu');
@@ -123,6 +125,7 @@ export default function CustomerScreen() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [nameError, setNameError] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [successOrderNumber, setSuccessOrderNumber] = useState<string | null>(null);
   const [checkoutDeliveryAddress, setCheckoutDeliveryAddress] = useState('');
@@ -150,7 +153,43 @@ export default function CustomerScreen() {
   const primaryColor = TURQUOISE_COLOR;
   const isRTL = language === 'ar';
 
+  const CART_STORAGE_KEY = '@restaurant_cart';
+
   // ALL USEEFFECT HOOKS MUST BE DECLARED BEFORE ANY CONDITIONAL RETURNS
+
+  // Load cart from AsyncStorage on mount
+  useEffect(() => {
+    const loadCart = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(CART_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setCart(parsed);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load cart from storage:', e);
+      } finally {
+        setCartReady(true);
+      }
+    };
+    loadCart();
+  }, []);
+
+  // Save cart to AsyncStorage whenever it changes (skip until initial load done)
+  useEffect(() => {
+    if (!cartReady) return;
+    const saveCart = async () => {
+      try {
+        await AsyncStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+      } catch (e) {
+        console.warn('Failed to save cart to storage:', e);
+      }
+    };
+    saveCart();
+  }, [cart, cartReady]);
+
   useEffect(() => {
     if (selectedMeal) {
       setMealQuantity(selectedMeal?.is_weighted ? 0.5 : 1);
@@ -423,6 +462,44 @@ export default function CustomerScreen() {
     });
   };
 
+  const updateCartItem = (cartItemId: string | undefined, itemId: string, isIncrement: boolean) => {
+    setCart(prevCart => {
+      const item = cartItemId
+        ? prevCart.find(ci => ci.cart_item_id === cartItemId)
+        : prevCart.find(ci => ci.id === itemId && !ci.cart_item_id);
+
+      if (!item) return prevCart;
+
+      const isWeighted = !!(item as any).is_weighted;
+      const step = isWeighted ? 0.5 : 1;
+      const currentVal = isWeighted ? ((item.weight ?? item.quantity) as number) : item.quantity;
+      const newVal = isIncrement ? currentVal + step : currentVal - step;
+
+      if (newVal <= 0) {
+        return cartItemId
+          ? prevCart.filter(ci => ci.cart_item_id !== cartItemId)
+          : prevCart.filter(ci => !(ci.id === itemId && !ci.cart_item_id));
+      }
+
+      const baseUnitPrice = isWeighted
+        ? (item.final_price != null ? item.final_price / currentVal : item.price)
+        : (item.final_price || item.price);
+
+      const updatedFields = isWeighted
+        ? { weight: newVal, final_price: parseFloat((baseUnitPrice * newVal).toFixed(2)) }
+        : { quantity: newVal };
+
+      if (cartItemId) {
+        return prevCart.map(ci =>
+          ci.cart_item_id === cartItemId ? { ...ci, ...updatedFields } : ci
+        );
+      }
+      return prevCart.map(ci =>
+        ci.id === itemId && !ci.cart_item_id ? { ...ci, ...updatedFields } : ci
+      );
+    });
+  };
+
   const getItemQuantity = (itemId: string) => {
     const item = cart.find(cartItem => cartItem.id === itemId && !cartItem.cart_item_id);
     return item?.quantity || 0;
@@ -581,18 +658,30 @@ export default function CustomerScreen() {
   };
 
   const handlePlaceOrder = async () => {
-    if (!customerName.trim() || !customerPhone.trim()) {
-      RNAlert.alert('تنبيه', 'يرجى إدخال الاسم ورقم الجوال');
+    // Cross-platform alert: RNAlert.alert is a no-op on React Native Web
+    const showAlert = (title: string, message: string) => {
+      if (typeof window !== 'undefined' && (window as any).alert) {
+        (window as any).alert(`${title}\n\n${message}`);
+      } else {
+        RNAlert.alert(title, message, [{ text: 'حسناً' }]);
+      }
+    };
+
+    // ── Validation ────────────────────────────────────────────────
+    setNameError('');
+    setPhoneError('');
+
+    if (!customerName || customerName.trim() === '') {
+      setNameError('الرجاء إدخال الاسم الكامل');
       return;
     }
 
     const saudiPhoneRegex = /^05\d{8}$/;
-    if (!saudiPhoneRegex.test(customerPhone.trim())) {
-      setPhoneError('الرجاء إدخال رقم جوال سعودي صحيح (مثال: 05XXXXXXXX)');
+    if (!customerPhone || !saudiPhoneRegex.test(customerPhone.trim())) {
+      setPhoneError('الرجاء إدخال رقم جوال سعودي صحيح يتكون من 10 أرقام ويبدأ بـ 05');
       return;
     }
 
-    setPhoneError('');
 
     if (paymentMethod === 'card') {
       if (!cardNumber || !/^\d{16}$/.test(cardNumber.replace(/\s+/g, ''))) {
@@ -624,41 +713,75 @@ export default function CustomerScreen() {
     try {
       setIsSubmitting(true);
 
-      const subtotal = cart.reduce((sum, item) => sum + ((item.final_price || item.price) * item.quantity), 0);
+      console.log('[Order] Starting submission — cart items:', cart.length);
+      const subtotal = cart.reduce(
+        (sum, item) => sum + ((item.final_price ?? item.price) * item.quantity),
+        0
+      );
       const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
-      const total = subtotal + deliveryFee;
+      const grandTotal = Math.max(0, subtotal + deliveryFee - discount);
 
+      // ── 1. Grand Total ────────────────────────────────────────────
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert([{
-          customer_name: customerName,
-          customer_phone: customerPhone,
-          total_amount: total,
-          delivery_mode: deliveryMode
+          customer_name: customerName.trim(),
+          customer_phone: customerPhone.trim(),
+          total_amount: grandTotal,
+          delivery_mode: deliveryMode,
+          status: 'pending',
         }])
         .select()
         .single();
 
-      if (orderError) throw new Error(orderError.message);
+      if (orderError) {
+        console.error('Order insert error:', orderError);
+        throw new Error(orderError.message);
+      }
 
+      console.log('[Order] Created — id:', order.id);
+
+      // ── 3. Bulk Insert Order Items ────────────────────────────────
       const orderItems = cart.map(item => ({
         order_id: order.id,
         menu_item_id: item.id,
         quantity: item.quantity,
-        unit_price: item.price
+        weight: (item as any).weight ?? null,
+        selected_options: (item as any).selected_options
+          ? JSON.stringify((item as any).selected_options)
+          : null,
+        notes: (item as any).notes ?? null,
+        unit_price: item.final_price ?? item.price,
       }));
 
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
-      if (itemsError) throw new Error(itemsError.message);
+      console.log('[Order] Items payload:', JSON.stringify(orderItems));
 
+      const { error: itemsError } = await supabase
+        .from('order_items')
+        .insert(orderItems);
+
+      if (itemsError) {
+        console.error('[Order] Items insert FAILED:', JSON.stringify(itemsError));
+        throw new Error(`[order_items] ${itemsError.message} (code: ${itemsError.code ?? 'unknown'})`);
+      }
+
+      console.log('[Order] Items inserted:', orderItems.length);
+
+      // ── 4. Cleanup & UX ──────────────────────────────────────────
       setCart([]);
+      await AsyncStorage.removeItem(CART_STORAGE_KEY);
+
       setCustomerName('');
       setCustomerPhone('');
+      setPromoCode('');
+      setDiscount(0);
       setIsCartModalVisible(false);
-      setSuccessOrderNumber(String(order.display_id));
+      setSuccessOrderNumber(String(order.display_id ?? order.id));
+
     } catch (error: any) {
-      console.error(error);
-      alert('حدث خطأ: ' + error.message);
+      const msg = error?.message ?? JSON.stringify(error);
+      console.error('[Order] Submission FAILED:', msg);
+      showAlert('فشل إرسال الطلب', msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -754,19 +877,26 @@ export default function CustomerScreen() {
                         {`${item.final_price || item.price} ${getText('ر.س', 'SAR')}`}
                       </Text>
                     </View>
-                    <View style={[{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 8 }]}>
+                    {/* Unified Smart Counter */}
+                    <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6 }}>
                       <TouchableOpacity
-                        style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center' }}
-                        onPress={() => addToCart(item)}
+                        style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center' }}
+                        onPress={() => updateCartItem(item.cart_item_id, item.id, true)}
                       >
-                        <Ionicons name="add" size={14} color={primaryColor} />
+                        <Ionicons name="add" size={15} color={primaryColor} />
                       </TouchableOpacity>
-                      <Text style={{ fontSize: 15, fontWeight: '700', color: '#1E293B', minWidth: 20, textAlign: 'center' }}>{item.quantity}</Text>
+                      <View style={{ backgroundColor: '#F1F5F9', borderRadius: 8, paddingVertical: 4, paddingHorizontal: 10, minWidth: 44, alignItems: 'center' }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: '#1E293B' }}>
+                          {(item as any).is_weighted
+                            ? `${item.weight ?? item.quantity} ${getText('كجم', 'kg')}`
+                            : `${item.quantity}`}
+                        </Text>
+                      </View>
                       <TouchableOpacity
-                        style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center' }}
-                        onPress={() => removeFromCart(item.id, item.cart_item_id)}
+                        style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center' }}
+                        onPress={() => updateCartItem(item.cart_item_id, item.id, false)}
                       >
-                        <Ionicons name="remove" size={14} color="#EF4444" />
+                        <Ionicons name="remove" size={15} color="#EF4444" />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -851,12 +981,17 @@ export default function CustomerScreen() {
               {/* ── SECTION 3: Customer Info ── */}
               {sectionTitle('بيانات العميل', 'Customer Info')}
               <View style={{ marginBottom: 20, gap: 10 }}>
+                {nameError ? (
+                  <Text style={{ color: '#EF4444', fontSize: 12, textAlign: isRTL ? 'right' : 'left', marginBottom: 4 }}>
+                    {nameError}
+                  </Text>
+                ) : null}
                 <TextInput
-                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48 }]}
+                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48, borderColor: nameError ? '#EF4444' : '#E5E7EB' }]}
                   placeholder={getText('الاسم الكامل', 'Full Name')}
                   placeholderTextColor="#9CA3AF"
                   value={customerName}
-                  onChangeText={setCustomerName}
+                  onChangeText={(text) => { setCustomerName(text); if (nameError) setNameError(''); }}
                 />
                 <TextInput
                   style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48, borderColor: phoneError ? '#EF4444' : '#E5E7EB' }]}
