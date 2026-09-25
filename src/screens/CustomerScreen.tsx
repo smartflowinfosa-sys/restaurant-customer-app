@@ -27,6 +27,10 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+let MapView: any = null;
+if (Platform.OS !== 'web') {
+  MapView = require('react-native-maps').default;
+}
 import { supabase } from '../../lib/supabase';
 import { useRestaurant } from '../contexts/RestaurantContext';
 import * as Location from 'expo-location';
@@ -128,7 +132,10 @@ export default function CustomerScreen() {
   const [nameError, setNameError] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [successOrderNumber, setSuccessOrderNumber] = useState<string | null>(null);
+  const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
+  const [trackedOrder, setTrackedOrder] = useState<any>(null);
   const [checkoutDeliveryAddress, setCheckoutDeliveryAddress] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState({ latitude: 21.5433, longitude: 39.1728 });
   const [pickupBranch, setPickupBranch] = useState('فرع الصفا');
   const [promoCode, setPromoCode] = useState('');
   const [discount, setDiscount] = useState(0);
@@ -243,11 +250,75 @@ export default function CustomerScreen() {
   }, []);
 
   useEffect(() => {
+    (async () => {
+      if (deliveryMode === 'delivery') {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        
+        try {
+          let location = await Location.getCurrentPositionAsync({});
+          setSelectedLocation({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude
+          });
+        } catch (error) {
+          console.warn('Error getting location:', error);
+        }
+      }
+    })();
+  }, [deliveryMode]);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       setIsAppReady(true);
     }, 2000);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!trackingOrderId) {
+      setTrackedOrder(null);
+      return;
+    }
+
+    const fetchOrder = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('id', trackingOrderId)
+          .single();
+        if (data) {
+          setTrackedOrder(data);
+        }
+      } catch (err) {
+        console.error("Error fetching tracked order:", err);
+      }
+    };
+
+    fetchOrder();
+
+    const channel = supabase
+      .channel(`tracking-${trackingOrderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${trackingOrderId}`,
+        },
+        (payload) => {
+          console.log("Order updated in real-time:", payload.new);
+          setTrackedOrder(payload.new);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [trackingOrderId]);
 
   useEffect(() => {
     // Update RTL/LTR based on language
@@ -728,8 +799,10 @@ export default function CustomerScreen() {
           customer_name: customerName.trim(),
           customer_phone: customerPhone.trim(),
           total_amount: grandTotal,
-          delivery_mode: deliveryMode,
-          status: 'pending',
+          delivery_type: deliveryMode,
+          branch_name: deliveryMode === 'pickup' ? pickupBranch : null,
+          latitude: deliveryMode === 'delivery' ? selectedLocation.latitude : null,
+          longitude: deliveryMode === 'delivery' ? selectedLocation.longitude : null,
         }])
         .select()
         .single();
@@ -750,7 +823,6 @@ export default function CustomerScreen() {
         selected_options: (item as any).selected_options
           ? JSON.stringify((item as any).selected_options)
           : null,
-        notes: (item as any).notes ?? null,
         unit_price: item.final_price ?? item.price,
       }));
 
@@ -777,6 +849,7 @@ export default function CustomerScreen() {
       setDiscount(0);
       setIsCartModalVisible(false);
       setSuccessOrderNumber(String(order.display_id ?? order.id));
+      setTrackingOrderId(order.id);
 
     } catch (error: any) {
       const msg = error?.message ?? JSON.stringify(error);
@@ -936,13 +1009,36 @@ export default function CustomerScreen() {
               </View>
 
               {deliveryMode === 'delivery' ? (
-                <TextInput
-                  style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', marginBottom: 20 }]}
-                  placeholder={getText('عنوان التوصيل (الحي، الشارع...)', 'Delivery Address (District, Street...)')}
-                  placeholderTextColor="#9CA3AF"
-                  value={checkoutDeliveryAddress}
-                  onChangeText={setCheckoutDeliveryAddress}
-                />
+                <View style={{ height: 250, width: '100%', borderRadius: 16, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#E5E7EB', position: 'relative' }}>
+                  {Platform.OS === 'web' ? (
+                    <View style={{ flex: 1, backgroundColor: '#eee', borderRadius: 10, overflow: 'hidden' }}>
+                      {/* @ts-ignore */}
+                      <iframe 
+                        src={`https://maps.google.com/maps?q=${selectedLocation.latitude},${selectedLocation.longitude}&hl=ar&z=14&output=embed`}
+                        style={{ width: '100%', height: '100%', border: 0 }} 
+                      />
+                      <Text style={{ textAlign: 'center', padding: 5, fontSize: 12, color: '#555' }}>
+                        (هذه خريطة محاكاة للمتصفح. في الجوال ستعمل الخريطة الأصلية)
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      <MapView
+                        style={{ flex: 1 }}
+                        initialRegion={{
+                          latitude: selectedLocation.latitude,
+                          longitude: selectedLocation.longitude,
+                          latitudeDelta: 0.05,
+                          longitudeDelta: 0.05,
+                        }}
+                        onRegionChangeComplete={(region: any) => setSelectedLocation({ latitude: region.latitude, longitude: region.longitude })}
+                      />
+                      <View style={{ position: 'absolute', top: '50%', left: '50%', marginLeft: -16, marginTop: -32, pointerEvents: 'none' }}>
+                        <Ionicons name="location" size={32} color="#EF4444" />
+                      </View>
+                    </>
+                  )}
+                </View>
               ) : (
                 <View style={{ marginBottom: 20 }}>
                   <Text style={{ fontSize: 13, color: '#64748B', marginBottom: 8, textAlign: isRTL ? 'right' : 'left' }}>
@@ -1185,6 +1281,64 @@ export default function CustomerScreen() {
 
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+    );
+  };
+
+  const renderOrderTrackingModal = () => {
+    if (!trackingOrderId || !trackedOrder) return null;
+
+    const getStatusText = (status: string, deliveryMode: string) => {
+      switch (status) {
+        case 'pending': return 'قيد الانتظار ⏳';
+        case 'preparing': return 'جاري التجهيز 🍳';
+        case 'out_for_delivery': return 'في الطريق 🚗';
+        case 'ready': return deliveryMode === 'delivery' ? 'في الطريق 🚗' : 'جاهز للاستلام 🛍️';
+        case 'completed': return 'مكتمل ✅';
+        default: return 'قيد الانتظار ⏳';
+      }
+    };
+
+    return (
+      <Modal visible={!!trackingOrderId} animationType="slide" transparent={true} onRequestClose={() => setTrackingOrderId(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: '#FFF', borderRadius: 24, padding: 30, width: '100%', alignItems: 'center' }}>
+            <Ionicons name="location-outline" size={60} color={primaryColor} style={{ marginBottom: 16 }} />
+            <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#1E293B', marginBottom: 12 }}>
+              {getText('تتبع طلبك', 'Track Your Order')}
+            </Text>
+            <Text style={{ fontSize: 16, color: '#64748B', marginBottom: 24 }}>
+              {getText('رقم الطلب:', 'Order No:')} {trackedOrder.display_id || trackedOrder.id}
+            </Text>
+
+            <View style={{ backgroundColor: '#F8FAFC', borderRadius: 16, padding: 20, width: '100%', alignItems: 'center', marginBottom: 24 }}>
+              <Text style={{ fontSize: 18, color: '#1E293B', marginBottom: 8, fontWeight: '600' }}>
+                {getText('حالة الطلب', 'Order Status')}
+              </Text>
+              <Text style={{ fontSize: 22, fontWeight: 'bold', color: primaryColor }}>
+                {getStatusText(trackedOrder.status, trackedOrder.delivery_mode)}
+              </Text>
+            </View>
+            
+            <View style={{ width: '100%', borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 20, marginBottom: 24, alignItems: 'center' }}>
+              <Text style={{ fontSize: 14, color: '#64748B', marginBottom: 4 }}>
+                {getText('المبلغ الإجمالي', 'Total Amount')}
+              </Text>
+              <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1E293B' }}>
+                {trackedOrder.total_amount} {getText('ر.س', 'SAR')}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={{ backgroundColor: primaryColor, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 24, width: '100%', alignItems: 'center' }}
+              onPress={() => setTrackingOrderId(null)}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
+                {getText('العودة للقائمة الرئيسية', 'Return to Main Menu')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     );
   };
@@ -2228,6 +2382,9 @@ export default function CustomerScreen() {
 
       {/* Meal Customization Modal */}
       {renderMealCustomizationModal()}
+
+      {/* Order Tracking Modal */}
+      {renderOrderTrackingModal()}
 
       {/* Order Success Modal */}
       {renderSuccessModal()}
