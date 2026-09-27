@@ -876,10 +876,9 @@ export default function CustomerScreen() {
     );
 
     const paymentOptions: { key: 'cash' | 'applepay' | 'mada' | 'card'; labelAr: string; labelEn: string; icon: string }[] = [
-      { key: 'cash', labelAr: 'كاش', labelEn: 'Cash', icon: '💵' },
-      { key: 'applepay', labelAr: 'Apple Pay', labelEn: 'Apple Pay', icon: '' },
-      { key: 'mada', labelAr: 'مدى', labelEn: 'Mada', icon: '💳' },
-      { key: 'card', labelAr: 'بطاقة', labelEn: 'Card', icon: '🏦' },
+      { key: 'applepay', labelAr: 'Apple Pay', labelEn: 'Apple Pay', icon: 'apple-pay' },
+      { key: 'card', labelAr: 'البطاقة / مدى', labelEn: 'Mada / Credit Card', icon: 'credit-card' },
+      { key: 'cash', labelAr: 'كاش', labelEn: 'Cash', icon: 'money-bill-wave' },
     ];
 
     return (
@@ -1140,7 +1139,7 @@ export default function CustomerScreen() {
                     onPress={() => setPaymentMethod(opt.key)}
                     style={[{
                       flex: 1,
-                      minWidth: '43%',
+                      minWidth: '28%',
                       paddingVertical: 12,
                       paddingHorizontal: 8,
                       borderRadius: 12,
@@ -1153,30 +1152,22 @@ export default function CustomerScreen() {
                       : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
                   >
                     {opt.key === 'applepay' && (
-                      <Image source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/Apple_Pay_logo.svg/512px-Apple_Pay_logo.svg.png' }} style={{ height: 40, width: 60, resizeMode: 'contain' }} />
-                    )}
-                    {opt.key === 'mada' && (
-                      <Image source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Mada_Logo.svg/512px-Mada_Logo.svg.png' }} style={{ height: 40, width: 60, resizeMode: 'contain' }} />
+                      <FontAwesome5 name="apple-pay" size={28} color="#000" />
                     )}
                     {opt.key === 'card' && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Image source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Visa_Inc._logo.svg/512px-Visa_Inc._logo.svg.png' }} style={{ height: 40, width: 40, resizeMode: 'contain' }} />
-                        <Image source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Mastercard-logo.svg/512px-Mastercard-logo.svg.png' }} style={{ height: 40, width: 40, resizeMode: 'contain' }} />
-                      </View>
+                      <FontAwesome5 name="credit-card" size={24} color="#1a1f71" />
                     )}
                     {opt.key === 'cash' && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ fontSize: 22 }}>💵</Text>
-                        <Text style={{
-                          fontSize: 13,
-                          fontWeight: '600',
-                          color: paymentMethod === opt.key ? primaryColor : '#64748B',
-                          textAlign: 'center',
-                        }}>
-                          {getText('الدفع عند الاستلام', 'Cash on Delivery')}
-                        </Text>
-                      </View>
+                      <FontAwesome5 name="money-bill-wave" size={24} color="#28a745" />
                     )}
+                    <Text style={{
+                      fontSize: 13,
+                      fontWeight: '600',
+                      color: paymentMethod === opt.key ? primaryColor : '#64748B',
+                      textAlign: 'center',
+                    }}>
+                      {getText(opt.labelAr, opt.labelEn)}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
