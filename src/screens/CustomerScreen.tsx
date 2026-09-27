@@ -819,10 +819,6 @@ export default function CustomerScreen() {
         order_id: order.id,
         menu_item_id: item.id,
         quantity: item.quantity,
-        weight: (item as any).weight ?? null,
-        selected_options: (item as any).selected_options
-          ? JSON.stringify((item as any).selected_options)
-          : null,
         unit_price: item.final_price ?? item.price,
       }));
 
@@ -1013,7 +1009,7 @@ export default function CustomerScreen() {
                     <View style={{ flex: 1, backgroundColor: '#eee', borderRadius: 10, overflow: 'hidden' }}>
                       {/* @ts-ignore */}
                       <iframe 
-                        src={`https://maps.google.com/maps?q=${selectedLocation.latitude},${selectedLocation.longitude}&hl=ar&z=14&output=embed`}
+                        src={`https://maps.google.com/maps?q=${selectedLocation.latitude},${selectedLocation.longitude}&hl=ar&z=15&output=embed`}
                         style={{ width: '100%', height: '100%', border: 0 }} 
                       />
                       <Text style={{ textAlign: 'center', padding: 5, fontSize: 12, color: '#555' }}>
@@ -1030,6 +1026,10 @@ export default function CustomerScreen() {
                           latitudeDelta: 0.05,
                           longitudeDelta: 0.05,
                         }}
+                        zoomControlEnabled={false}
+                        showsCompass={false}
+                        toolbarEnabled={false}
+                        showsMyLocationButton={false}
                         onRegionChangeComplete={(region: any) => setSelectedLocation({ latitude: region.latitude, longitude: region.longitude })}
                       />
                       <View style={{ position: 'absolute', top: '50%', left: '50%', marginLeft: -16, marginTop: -32, pointerEvents: 'none' }}>
@@ -1037,6 +1037,40 @@ export default function CustomerScreen() {
                       </View>
                     </>
                   )}
+                  <TouchableOpacity
+                    style={{
+                      position: 'absolute',
+                      bottom: 15,
+                      left: 15,
+                      backgroundColor: 'white',
+                      width: 50,
+                      height: 50,
+                      borderRadius: 25,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      elevation: 9999,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.3,
+                      shadowRadius: 5,
+                      zIndex: 9999,
+                    }}
+                    onPress={async () => {
+                      try {
+                        let { status } = await Location.requestForegroundPermissionsAsync();
+                        if (status === 'granted') {
+                          let loc = await Location.getCurrentPositionAsync({});
+                          setSelectedLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+                        } else {
+                          alert('تم رفض صلاحية الوصول للموقع.');
+                        }
+                      } catch (error) {
+                        console.warn('Location error:', error);
+                      }
+                    }}
+                  >
+                    <Ionicons name="navigate-sharp" size={24} color="#007bff" />
+                  </TouchableOpacity>
                 </View>
               ) : (
                 <View style={{ marginBottom: 20 }}>
