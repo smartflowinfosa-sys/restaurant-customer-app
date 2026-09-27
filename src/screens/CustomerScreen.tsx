@@ -845,7 +845,6 @@ export default function CustomerScreen() {
       setDiscount(0);
       setIsCartModalVisible(false);
       setSuccessOrderNumber(String(order.display_id ?? order.id));
-      setTrackingOrderId(order.id);
 
     } catch (error: any) {
       const msg = error?.message ?? JSON.stringify(error);
@@ -1368,7 +1367,9 @@ export default function CustomerScreen() {
     );
   };
 
-  const renderSuccessModal = () => (
+  const renderSuccessModal = () => {
+    const displayOrderId = successOrderNumber ? `${deliveryMode === 'delivery' ? 'D' : 'P'}${successOrderNumber}` : '';
+    return (
     <Modal
       visible={successOrderNumber !== null}
       transparent={true}
@@ -1395,35 +1396,38 @@ export default function CustomerScreen() {
           </View>
 
           {/* Title */}
-          <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1E293B', marginBottom: 8, textAlign: 'center' }}>
+          <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1E293B', marginBottom: 24, textAlign: 'center' }}>
             {getText('تم إرسال طلبك بنجاح!', 'Order Placed Successfully!')}
           </Text>
 
-          {/* Subtitle */}
-          <Text style={{ fontSize: 14, color: '#64748B', marginBottom: 6, textAlign: 'center' }}>
-            {getText('رقم طلبك هو', 'Your order number is')}
-          </Text>
-
-          {/* Order ID */}
-          <View style={{ backgroundColor: '#F1F5F9', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 24, marginBottom: 28 }}>
-            <Text style={{ fontSize: 18, fontWeight: 'bold', color: primaryColor, letterSpacing: 1, textAlign: 'center' }}>
-              {successOrderNumber}
+          {/* Order Details */}
+          <View style={{ backgroundColor: '#F1F5F9', borderRadius: 12, paddingVertical: 16, paddingHorizontal: 24, marginBottom: 28, width: '100%', alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#334155', textAlign: 'center' }}>
+              {getText(`رقم الطلب: ${displayOrderId}`, `Order Number: ${displayOrderId}`)}
+            </Text>
+            <Text style={{ fontSize: 15, fontWeight: '600', color: primaryColor, textAlign: 'center' }}>
+              {deliveryMode === 'delivery' ? getText('نوع الطلب: توصيل', 'Order Type: Delivery') : getText('نوع الطلب: استلام من الفرع', 'Order Type: Branch Pickup')}
             </Text>
           </View>
 
           {/* Close Button */}
           <TouchableOpacity
-            style={{ backgroundColor: primaryColor, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 48, width: '100%', alignItems: 'center' }}
-            onPress={() => setSuccessOrderNumber(null)}
+            style={{ backgroundColor: primaryColor, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 24, width: '100%', alignItems: 'center' }}
+            onPress={() => {
+              setCart([]);
+              setSuccessOrderNumber(null);
+              setActiveTab('menu');
+            }}
           >
             <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
-              {getText('حسناً', 'Great!')}
+              {getText('العودة للقائمة الرئيسية', 'Return to Main Menu')}
             </Text>
           </TouchableOpacity>
         </View>
       </View>
     </Modal>
-  );
+    );
+  };
 
   const renderMenuTab = () => (
     <>
