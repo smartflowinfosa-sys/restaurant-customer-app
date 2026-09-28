@@ -1986,7 +1986,7 @@ export default function CustomerScreen() {
       {/* Restaurant Branding Header */}
       <View style={[styles.brandingHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
         <View style={[styles.brandingLogoPlaceholder, { overflow: 'hidden', padding: 0, justifyContent: 'center', alignItems: 'center' }]}>
-          <Image source={{ uri: 'https://img.freepik.com/free-vector/detailed-chef-logo-template_23-2148987940.jpg' }} style={{ width: 50, height: 50, borderRadius: 25 }} />
+          <Image source={require('../../assets/store-logo.jpeg')} style={{ width: 50, height: 50, borderRadius: 25 }} />
         </View>
         <View style={[styles.brandingInfo, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
           <Text style={[styles.brandingTitle, { textAlign: isRTL ? 'right' : 'left' }]}>
