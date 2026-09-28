@@ -479,7 +479,7 @@ export default function CustomerScreen() {
   // Filter items by category
   const filteredItems = !selectedCategory || selectedCategory === 'all' || selectedCategory === 'الكل'
     ? menuItems
-    : menuItems.filter(item => item.category_id === selectedCategory || item.category === selectedCategory);
+    : menuItems.filter(item => item.category_id != null && String(item.category_id) === String(selectedCategory));
 
   const addToCart = (item: CartItem | MenuItem) => {
     setCart(prevCart => {
@@ -1429,7 +1429,17 @@ export default function CustomerScreen() {
     );
   };
 
-  const renderMenuTab = () => (
+  const renderMenuTab = () => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={primaryColor} />
+          <Text style={styles.loadingText}>{getText('جاري تحميل القائمة...', 'Loading menu...')}</Text>
+        </View>
+      );
+    }
+
+    return (
     <>
       {/* Categories */}
       <View style={styles.categoriesContainer}>
@@ -1475,7 +1485,8 @@ export default function CustomerScreen() {
         </TouchableOpacity>
       )}
     </>
-  );
+    );
+  };
 
   const renderOffersTab = () => (
     <View style={styles.offersContainer}>
