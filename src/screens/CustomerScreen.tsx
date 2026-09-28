@@ -254,7 +254,7 @@ export default function CustomerScreen() {
       if (deliveryMode === 'delivery') {
         let { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') return;
-        
+
         try {
           let location = await Location.getCurrentPositionAsync({});
           setSelectedLocation({
@@ -1007,9 +1007,9 @@ export default function CustomerScreen() {
                   {Platform.OS === 'web' ? (
                     <View style={{ flex: 1, backgroundColor: '#eee', borderRadius: 10, overflow: 'hidden' }}>
                       {/* @ts-ignore */}
-                      <iframe 
+                      <iframe
                         src={`https://maps.google.com/maps?q=${selectedLocation.latitude},${selectedLocation.longitude}&hl=ar&z=15&output=embed`}
-                        style={{ width: '100%', height: '100%', border: 0 }} 
+                        style={{ width: '100%', height: '100%', border: 0 }}
                       />
                       <Text style={{ textAlign: 'center', padding: 5, fontSize: 12, color: '#555' }}>
                         (هذه خريطة محاكاة للمتصفح. في الجوال ستعمل الخريطة الأصلية)
@@ -1343,7 +1343,7 @@ export default function CustomerScreen() {
                 {getStatusText(trackedOrder.status, trackedOrder.delivery_mode)}
               </Text>
             </View>
-            
+
             <View style={{ width: '100%', borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 20, marginBottom: 24, alignItems: 'center' }}>
               <Text style={{ fontSize: 14, color: '#64748B', marginBottom: 4 }}>
                 {getText('المبلغ الإجمالي', 'Total Amount')}
@@ -1370,62 +1370,62 @@ export default function CustomerScreen() {
   const renderSuccessModal = () => {
     const displayOrderId = successOrderNumber ? `${deliveryMode === 'delivery' ? 'D' : 'P'}${successOrderNumber}` : '';
     return (
-    <Modal
-      visible={successOrderNumber !== null}
-      transparent={true}
-      animationType="fade"
-      onRequestClose={() => setSuccessOrderNumber(null)}
-    >
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <View style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: 24,
-          padding: 32,
-          alignItems: 'center',
-          width: '100%',
-          maxWidth: 360,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 0.15,
-          shadowRadius: 24,
-          elevation: 10,
-        }}>
-          {/* Checkmark Icon */}
-          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#DCFCE7', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
-            <Text style={{ fontSize: 40 }}>{'✅'}</Text>
+      <Modal
+        visible={successOrderNumber !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSuccessOrderNumber(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 24,
+            padding: 32,
+            alignItems: 'center',
+            width: '100%',
+            maxWidth: 360,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.15,
+            shadowRadius: 24,
+            elevation: 10,
+          }}>
+            {/* Checkmark Icon */}
+            <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#DCFCE7', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+              <Text style={{ fontSize: 40 }}>{'✅'}</Text>
+            </View>
+
+            {/* Title */}
+            <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1E293B', marginBottom: 24, textAlign: 'center' }}>
+              {getText('تم إرسال طلبك بنجاح!', 'Order Placed Successfully!')}
+            </Text>
+
+            {/* Order Details */}
+            <View style={{ backgroundColor: '#F1F5F9', borderRadius: 12, paddingVertical: 16, paddingHorizontal: 24, marginBottom: 28, width: '100%', alignItems: 'center', gap: 8 }}>
+              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#334155', textAlign: 'center' }}>
+                {getText(`رقم الطلب: ${displayOrderId}`, `Order Number: ${displayOrderId}`)}
+              </Text>
+              <Text style={{ fontSize: 15, fontWeight: '600', color: primaryColor, textAlign: 'center' }}>
+                {deliveryMode === 'delivery' ? getText('نوع الطلب: توصيل', 'Order Type: Delivery') : getText('نوع الطلب: استلام من الفرع', 'Order Type: Branch Pickup')}
+              </Text>
+            </View>
+
+            {/* Close Button */}
+            <TouchableOpacity
+              style={{ backgroundColor: primaryColor, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 24, width: '100%', alignItems: 'center' }}
+              onPress={() => {
+                setCart([]);
+                setSuccessOrderNumber(null);
+                setActiveTab('menu');
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
+                {getText('العودة للقائمة الرئيسية', 'Return to Main Menu')}
+              </Text>
+            </TouchableOpacity>
           </View>
-
-          {/* Title */}
-          <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1E293B', marginBottom: 24, textAlign: 'center' }}>
-            {getText('تم إرسال طلبك بنجاح!', 'Order Placed Successfully!')}
-          </Text>
-
-          {/* Order Details */}
-          <View style={{ backgroundColor: '#F1F5F9', borderRadius: 12, paddingVertical: 16, paddingHorizontal: 24, marginBottom: 28, width: '100%', alignItems: 'center', gap: 8 }}>
-            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#334155', textAlign: 'center' }}>
-              {getText(`رقم الطلب: ${displayOrderId}`, `Order Number: ${displayOrderId}`)}
-            </Text>
-            <Text style={{ fontSize: 15, fontWeight: '600', color: primaryColor, textAlign: 'center' }}>
-              {deliveryMode === 'delivery' ? getText('نوع الطلب: توصيل', 'Order Type: Delivery') : getText('نوع الطلب: استلام من الفرع', 'Order Type: Branch Pickup')}
-            </Text>
-          </View>
-
-          {/* Close Button */}
-          <TouchableOpacity
-            style={{ backgroundColor: primaryColor, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 24, width: '100%', alignItems: 'center' }}
-            onPress={() => {
-              setCart([]);
-              setSuccessOrderNumber(null);
-              setActiveTab('menu');
-            }}
-          >
-            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
-              {getText('العودة للقائمة الرئيسية', 'Return to Main Menu')}
-            </Text>
-          </TouchableOpacity>
         </View>
-      </View>
-    </Modal>
+      </Modal>
     );
   };
 
@@ -1440,51 +1440,51 @@ export default function CustomerScreen() {
     }
 
     return (
-    <>
-      {/* Categories */}
-      <View style={styles.categoriesContainer}>
+      <>
+        {/* Categories */}
+        <View style={styles.categoriesContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[styles.categoriesList, { flexDirection: 'row' }]}
+            style={{ transform: [{ scaleX: isRTL ? -1 : 1 }] }}
+          >
+            {categories.map(renderCategory)}
+          </ScrollView>
+        </View>
+
+        {/* Menu Items */}
         <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[styles.categoriesList, { flexDirection: 'row' }]}
-          style={{ transform: [{ scaleX: isRTL ? -1 : 1 }] }}
+          style={styles.menuContainer}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.menuContent}
         >
-          {categories.map(renderCategory)}
-        </ScrollView>
-      </View>
-
-      {/* Menu Items */}
-      <ScrollView
-        style={styles.menuContainer}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.menuContent}
-      >
-        {filteredItems.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>{getText('لا توجد أصناف في هذه الفئة', 'No items in this category')}</Text>
-          </View>
-        ) : (
-          filteredItems.map((item) => (
-            <View key={item.id}>
-              {renderMenuItem({ item })}
+          {filteredItems.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>{getText('لا توجد أصناف في هذه الفئة', 'No items in this category')}</Text>
             </View>
-          ))
-        )}
-      </ScrollView>
+          ) : (
+            filteredItems.map((item) => (
+              <View key={item.id}>
+                {renderMenuItem({ item })}
+              </View>
+            ))
+          )}
+        </ScrollView>
 
-      {/* Floating Cart Button */}
-      {cart.length > 0 && (
-        <TouchableOpacity
-          style={[styles.floatingCartFab, { backgroundColor: primaryColor }]}
-          onPress={() => setIsCartModalVisible(true)}
-        >
-          <Ionicons name="cart-outline" size={28} color="#FFFFFF" />
-          <View style={styles.floatingCartFabBadge}>
-            <Text style={[styles.floatingCartFabBadgeText, { color: primaryColor }]}>{totalItems}</Text>
-          </View>
-        </TouchableOpacity>
-      )}
-    </>
+        {/* Floating Cart Button */}
+        {cart.length > 0 && (
+          <TouchableOpacity
+            style={[styles.floatingCartFab, { backgroundColor: primaryColor }]}
+            onPress={() => setIsCartModalVisible(true)}
+          >
+            <Ionicons name="cart-outline" size={28} color="#FFFFFF" />
+            <View style={styles.floatingCartFabBadge}>
+              <Text style={[styles.floatingCartFabBadgeText, { color: primaryColor }]}>{totalItems}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      </>
     );
   };
 
