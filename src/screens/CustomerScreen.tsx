@@ -821,9 +821,9 @@ export default function CustomerScreen() {
         order_id: orderId,
         menu_item_id: item.id || (item as any).menu_item_id,
         quantity: item.quantity,
-        unit_price: item.final_price ?? item.price || (item as any).unit_price,
+        unit_price: (item.final_price ?? item.price) || (item as any).unit_price,
         name: item.name || item.title,
-        price: item.final_price ?? item.price || (item.quantity * item.price)
+        price: (item.final_price ?? item.price) || (item.quantity * item.price)
       }));
 
       console.log('[Order] Items payload:', JSON.stringify(itemsPayload));
