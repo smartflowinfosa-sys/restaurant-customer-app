@@ -792,7 +792,7 @@ export default function CustomerScreen() {
       const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
       const grandTotal = Math.max(0, subtotal + deliveryFee - discount);
 
-      // ── 1. Grand Total ────────────────────────────────────────────
+      // ── 1. Insert Main Order ────────────────────────────────────────────
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert([{
@@ -800,6 +800,7 @@ export default function CustomerScreen() {
           customer_phone: customerPhone.trim(),
           total_amount: grandTotal,
           delivery_type: deliveryMode,
+          payment_method: paymentMethod,
           branch_name: deliveryMode === 'pickup' ? pickupBranch : null,
           latitude: deliveryMode === 'delivery' ? selectedLocation.latitude : null,
           longitude: deliveryMode === 'delivery' ? selectedLocation.longitude : null,
@@ -808,32 +809,35 @@ export default function CustomerScreen() {
         .single();
 
       if (orderError) {
-        console.error('Order insert error:', orderError);
+        console.error('Order insert error (Step 1 failed):', orderError);
         throw new Error(orderError.message);
       }
 
-      console.log('[Order] Created — id:', order.id);
+      console.log('[Order] Created (Step 1 success) — id:', order.id);
 
-      // ── 3. Bulk Insert Order Items ────────────────────────────────
-      const orderItems = cart.map(item => ({
-        order_id: order.id,
-        menu_item_id: item.id,
+      // ── 2. Bulk Insert Order Items ────────────────────────────────
+      const orderId = order.id;
+      const itemsPayload = cart.map(item => ({
+        order_id: orderId,
+        menu_item_id: item.id || (item as any).menu_item_id,
         quantity: item.quantity,
-        unit_price: item.final_price ?? item.price,
+        unit_price: item.final_price ?? item.price || (item as any).unit_price,
+        name: item.name || item.title,
+        price: item.final_price ?? item.price || (item.quantity * item.price)
       }));
 
-      console.log('[Order] Items payload:', JSON.stringify(orderItems));
+      console.log('[Order] Items payload:', JSON.stringify(itemsPayload));
 
       const { error: itemsError } = await supabase
         .from('order_items')
-        .insert(orderItems);
+        .insert(itemsPayload);
 
       if (itemsError) {
-        console.error('[Order] Items insert FAILED:', JSON.stringify(itemsError));
+        console.error('[Order] Items insert FAILED (Step 2 failed):', JSON.stringify(itemsError));
         throw new Error(`[order_items] ${itemsError.message} (code: ${itemsError.code ?? 'unknown'})`);
       }
 
-      console.log('[Order] Items inserted:', orderItems.length);
+      console.log('[Order] Items inserted (Step 2 success):', itemsPayload.length);
 
       // ── 4. Cleanup & UX ──────────────────────────────────────────
       setCart([]);
