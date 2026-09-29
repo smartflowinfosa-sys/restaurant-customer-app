@@ -452,7 +452,8 @@ export default function CustomerScreen() {
       const { data: catData, error: catError } = await supabase
         .from('categories')
         .select('*')
-        .eq('user_id', activeRestaurantId);
+        .eq('user_id', activeRestaurantId)
+        .order('sort_order', { ascending: true });
 
       if (!catError && catData) {
         setCategories([{ id: 'all', name: 'الكل', name_en: 'All' }, ...catData]);
