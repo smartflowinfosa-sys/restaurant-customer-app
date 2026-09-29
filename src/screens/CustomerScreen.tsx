@@ -462,7 +462,8 @@ export default function CustomerScreen() {
       const { data: itemsData, error: itemsError } = await supabase
         .from('menu_items')
         .select('*')
-        .eq('user_id', activeRestaurantId);
+        .eq('user_id', activeRestaurantId)
+        .order('sort_order', { ascending: true });
 
       if (itemsError) throw itemsError;
 
