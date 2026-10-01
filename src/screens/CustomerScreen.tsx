@@ -110,6 +110,10 @@ export default function CustomerScreen() {
   const [cartReady, setCartReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [offers, setOffers] = useState<any[]>([]);
+  const [promoCodesList, setPromoCodesList] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('menu');
   const [offersSection, setOffersSection] = useState('offers');
   const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('pickup');
@@ -136,7 +140,8 @@ export default function CustomerScreen() {
   const [trackedOrder, setTrackedOrder] = useState<any>(null);
   const [checkoutDeliveryAddress, setCheckoutDeliveryAddress] = useState('');
   const [selectedLocation, setSelectedLocation] = useState({ latitude: 21.5433, longitude: 39.1728 });
-  const [pickupBranch, setPickupBranch] = useState('فرع الصفا');
+  const [pickupBranch, setPickupBranch] = useState('');
+  const [branches, setBranches] = useState<any[]>([]);
   const [promoCode, setPromoCode] = useState('');
   const [discount, setDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'applepay' | 'mada' | 'card'>('cash');
@@ -248,6 +253,32 @@ export default function CustomerScreen() {
     fetchData();
     // requestPermissions();
   }, []);
+
+  useEffect(() => {
+    const fetchOrders = async () => {
+      if (!customerPhone || customerPhone.length < 9) {
+        setOrders([]);
+        return;
+      }
+      try {
+        setOrdersLoading(true);
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*, order_items(*), restaurant_branches(name)')
+          .eq('customer_phone', customerPhone)
+          .order('created_at', { ascending: false });
+        
+        if (!error && data) {
+          setOrders(data);
+        }
+      } catch (e) {
+        console.error('Error fetching orders:', e);
+      } finally {
+        setOrdersLoading(false);
+      }
+    };
+    fetchOrders();
+  }, [customerPhone]);
 
   useEffect(() => {
     (async () => {
@@ -459,6 +490,17 @@ export default function CustomerScreen() {
         setCategories([{ id: 'all', name: 'الكل', name_en: 'All' }, ...catData]);
       }
 
+      // Fetch branches
+      const { data: branchesData } = await supabase
+        .from('restaurant_branches')
+        .select('*')
+        .eq('restaurant_id', activeRestaurantId)
+        .eq('is_active', true);
+      if (branchesData && branchesData.length > 0) {
+        setBranches(branchesData);
+        if (!pickupBranch) setPickupBranch(branchesData[0].id);
+      }
+
       // Fetch menu items
       const { data: itemsData, error: itemsError } = await supabase
         .from('menu_items')
@@ -469,6 +511,26 @@ export default function CustomerScreen() {
       if (itemsError) throw itemsError;
 
       setMenuItems(itemsData || []);
+
+      // Fetch offers
+      const today = new Date().toISOString();
+      const { data: offersData, error: offersError } = await supabase
+        .from('offers')
+        .select('*')
+        .eq('restaurant_id', activeRestaurantId);
+      
+      console.log('Fetched Offers:', offersData, 'Error:', offersError);
+      if (offersData) setOffers(offersData);
+
+      // Fetch promo codes
+      const { data: promoData, error: promoError } = await supabase
+        .from('promo_codes')
+        .select('*')
+        .eq('restaurant_id', activeRestaurantId)
+        .eq('is_active', true);
+      
+      console.log('Fetched Promo Codes:', promoData, 'Error:', promoError);
+      if (promoData) setPromoCodesList(promoData);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -803,7 +865,7 @@ export default function CustomerScreen() {
           total_amount: grandTotal,
           delivery_type: deliveryMode,
           payment_method: paymentMethod,
-          branch_name: deliveryMode === 'pickup' ? pickupBranch : null,
+          branch_id: deliveryMode === 'pickup' ? pickupBranch : null,
           latitude: deliveryMode === 'delivery' ? selectedLocation.latitude : null,
           longitude: deliveryMode === 'delivery' ? selectedLocation.longitude : null,
         }])
@@ -1082,10 +1144,10 @@ export default function CustomerScreen() {
                   <Text style={{ fontSize: 13, color: '#64748B', marginBottom: 8, textAlign: isRTL ? 'right' : 'left' }}>
                     {getText('اختر الفرع', 'Select Branch')}
                   </Text>
-                  {['فرع الصفا', 'فرع النسيم'].map((branch) => (
+                  {branches.map((branch) => (
                     <TouchableOpacity
-                      key={branch}
-                      onPress={() => setPickupBranch(branch)}
+                      key={branch.id}
+                      onPress={() => setPickupBranch(branch.id)}
                       style={[{
                         flexDirection: isRTL ? 'row-reverse' : 'row',
                         alignItems: 'center',
@@ -1095,17 +1157,17 @@ export default function CustomerScreen() {
                         borderWidth: 1.5,
                         marginBottom: 8,
                         gap: 10,
-                      }, pickupBranch === branch
+                      }, pickupBranch === branch.id
                         ? { borderColor: primaryColor, backgroundColor: '#EEF2FF' }
                         : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
                     >
                       <Ionicons
-                        name={pickupBranch === branch ? 'radio-button-on' : 'radio-button-off'}
+                        name={pickupBranch === branch.id ? 'radio-button-on' : 'radio-button-off'}
                         size={18}
-                        color={pickupBranch === branch ? primaryColor : '#9CA3AF'}
+                        color={pickupBranch === branch.id ? primaryColor : '#9CA3AF'}
                       />
-                      <Text style={{ fontSize: 14, color: pickupBranch === branch ? primaryColor : '#374151', fontWeight: pickupBranch === branch ? '600' : '400' }}>
-                        {branch}
+                      <Text style={{ fontSize: 14, color: pickupBranch === branch.id ? primaryColor : '#374151', fontWeight: pickupBranch === branch.id ? '600' : '400' }}>
+                        {branch.name}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -1536,45 +1598,39 @@ export default function CustomerScreen() {
       <ScrollView style={styles.offersContent} showsVerticalScrollIndicator={false}>
         {offersSection === 'offers' ? (
           <View style={styles.offersSection}>
-            <View style={styles.offerCard}>
-              <View style={[styles.offerBadge, { backgroundColor: primaryColor }]}>
-                <Text style={styles.offerBadgeText}>{getText('خصم 20%', '20% Off')}</Text>
-              </View>
-              <Text style={[styles.offerTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('عرض خاص على الأسماك', 'Special Fish Offer')}</Text>
-              <Text style={[styles.offerDescription, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('احصل على خصم 20% على جميع أنواع الأسماك', 'Get 20% off on all fish types')}</Text>
-              <Text style={[styles.offerValidity, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('صالح حتى 30 سبتمبر', 'Valid until September 30')}</Text>
-            </View>
-            <View style={styles.offerCard}>
-              <View style={[styles.offerBadge, { backgroundColor: primaryColor }]}>
-                <Text style={styles.offerBadgeText}>{getText('وجبة مجانية', 'Free Meal')}</Text>
-              </View>
-              <Text style={[styles.offerTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('اشتري وجبة واحصل على مجانية', 'Buy one get one free')}</Text>
-              <Text style={[styles.offerDescription, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('عند شراء وجبتين احصل على الثالثة مجاناً', 'Buy 2 meals, get 1 free')}</Text>
-              <Text style={[styles.offerValidity, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('صالح لفترة محدودة', 'Valid for limited time')}</Text>
-            </View>
+            {offers.length === 0 ? (
+               <Text style={{ textAlign: 'center', marginTop: 40, color: '#64748B' }}>{getText('لا توجد عروض حالياً', 'No active offers')}</Text>
+            ) : (
+              offers.map((offer, index) => (
+                <View key={index} style={styles.offerCard}>
+                  <View style={[styles.offerBadge, { backgroundColor: primaryColor }]}>
+                    <Text style={styles.offerBadgeText}>{offer.badge_text || getText('عرض خاص', 'Special Offer')}</Text>
+                  </View>
+                  <Text style={[styles.offerTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{isRTL ? (offer.title_ar || offer.title) : offer.title}</Text>
+                  <Text style={[styles.offerDescription, { textAlign: isRTL ? 'right' : 'left' }]}>{isRTL ? (offer.description_ar || offer.description) : offer.description}</Text>
+                  <Text style={[styles.offerValidity, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('صالح حتى', 'Valid until')} {offer.valid_until ? offer.valid_until.split('T')[0] : ''}</Text>
+                </View>
+              ))
+            )}
           </View>
         ) : (
           <View style={styles.codesSection}>
-            <View style={styles.codeCard}>
-              <Text style={[styles.codeTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('كود الخصم', 'Discount Code')}</Text>
-              <View style={[styles.codeInput, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                <Text style={styles.codeText}>SEAFOOD20</Text>
-                <TouchableOpacity style={[styles.copyButton, { backgroundColor: primaryColor }]}>
-                  <Text style={styles.copyButtonText}>{getText('نسخ', 'Copy')}</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={[styles.codeDescription, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('خصم 20% على الطلب الأول', '20% off first order')}</Text>
-            </View>
-            <View style={styles.codeCard}>
-              <Text style={[styles.codeTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('كود التوصيل المجاني', 'Free Delivery Code')}</Text>
-              <View style={[styles.codeInput, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                <Text style={styles.codeText}>FREEDEL</Text>
-                <TouchableOpacity style={[styles.copyButton, { backgroundColor: primaryColor }]}>
-                  <Text style={styles.copyButtonText}>{getText('نسخ', 'Copy')}</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={[styles.codeDescription, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('توصيل مجاني للطلبات فوق 100 ر.س', 'Free delivery on orders over 100 SAR')}</Text>
-            </View>
+            {promoCodesList.length === 0 ? (
+               <Text style={{ textAlign: 'center', marginTop: 40, color: '#64748B' }}>{getText('لا توجد أكواد حالياً', 'No active promo codes')}</Text>
+            ) : (
+              promoCodesList.map((code, index) => (
+                <View key={index} style={styles.codeCard}>
+                  <Text style={[styles.codeTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{isRTL ? (code.title_ar || code.code) : code.code}</Text>
+                  <View style={[styles.codeInput, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                    <Text style={styles.codeText}>{code.code}</Text>
+                    <TouchableOpacity style={[styles.copyButton, { backgroundColor: primaryColor }]}>
+                      <Text style={styles.copyButtonText}>{getText('نسخ', 'Copy')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={[styles.codeDescription, { textAlign: isRTL ? 'right' : 'left' }]}>{getText(`خصم ${code.discount_percentage}%`, `${code.discount_percentage}% off`)}</Text>
+                </View>
+              ))
+            )}
           </View>
         )}
       </ScrollView>
@@ -1585,24 +1641,25 @@ export default function CustomerScreen() {
     <View style={styles.ordersContainer}>
       <Text style={[styles.ordersTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('طلباتي السابقة', 'My Previous Orders')}</Text>
       <ScrollView style={styles.ordersContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.orderCard}>
-          <View style={[styles.orderHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-            <Text style={styles.orderNumber}>{getText('طلب #1234', 'Order #1234')}</Text>
-            <Text style={[styles.orderStatus, { color: primaryColor }]}>{getText('قيد التجهيز', 'Preparing')}</Text>
-          </View>
-          <Text style={[styles.orderDate, { textAlign: isRTL ? 'right' : 'left' }]}>15 سبتمبر 2026</Text>
-          <Text style={[styles.orderItems, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('لمة هامور، لمة شعور', 'Hamour, Shour Fish')}</Text>
-          <Text style={[styles.orderTotal, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('الإجمالي: 198 ر.س', 'Total: 198 SAR')}</Text>
-        </View>
-        <View style={styles.orderCard}>
-          <View style={[styles.orderHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-            <Text style={styles.orderNumber}>{getText('طلب #1233', 'Order #1233')}</Text>
-            <Text style={[styles.orderStatus, { color: '#10B981' }]}>{getText('تم التوصيل', 'Delivered')}</Text>
-          </View>
-          <Text style={[styles.orderDate, { textAlign: isRTL ? 'right' : 'left' }]}>10 سبتمبر 2026</Text>
-          <Text style={[styles.orderItems, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('بيتزا مارغريتا، عصير برتقال', 'Margherita Pizza, Orange Juice')}</Text>
-          <Text style={[styles.orderTotal, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('الإجمالي: 47 ر.س', 'Total: 47 SAR')}</Text>
-        </View>
+        {ordersLoading ? (
+          <ActivityIndicator size="large" color={primaryColor} style={{ marginTop: 40 }} />
+        ) : orders.length === 0 ? (
+          <Text style={{ textAlign: 'center', marginTop: 40, color: '#64748B' }}>
+            {customerPhone ? getText('لا توجد طلبات سابقة', 'No previous orders found') : getText('يرجى إدخال رقم هاتفك في صفحة إتمام الطلب لعرض طلباتك', 'Please enter your phone number during checkout to see your orders')}
+          </Text>
+        ) : (
+          orders.map((order, index) => (
+            <View key={index} style={styles.orderCard}>
+              <View style={[styles.orderHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                <Text style={styles.orderNumber}>{getText(`طلب #${order.id.slice(0, 6)}`, `Order #${order.id.slice(0, 6)}`)} {order.restaurant_branches ? `(${order.restaurant_branches.name})` : ''}</Text>
+                <Text style={[styles.orderStatus, { color: order.status === 'delivered' ? '#10B981' : primaryColor }]}>{order.status}</Text>
+              </View>
+              <Text style={[styles.orderDate, { textAlign: isRTL ? 'right' : 'left' }]}>{new Date(order.created_at).toLocaleDateString(isRTL ? 'ar-SA' : 'en-US')}</Text>
+              <Text style={[styles.orderItems, { textAlign: isRTL ? 'right' : 'left' }]}>{order.order_items?.map((item: any) => item.name).join('، ') || 'عناصر الطلب'}</Text>
+              <Text style={[styles.orderTotal, { textAlign: isRTL ? 'right' : 'left' }]}>{getText(`الإجمالي: ${order.total_amount} ر.س`, `Total: ${order.total_amount} SAR`)}</Text>
+            </View>
+          ))
+        )}
       </ScrollView>
     </View>
   );
