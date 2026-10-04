@@ -117,7 +117,7 @@ export default function CustomerScreen() {
   const [activeTab, setActiveTab] = useState('menu');
   const [offersSection, setOffersSection] = useState('offers');
   const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('pickup');
-  const [selectedBranch, setSelectedBranch] = useState('فرع الصفا');
+  const [selectedBranch, setSelectedBranch] = useState('');
   const [language, setLanguage] = useState<'ar' | 'en'>('ar');
   const [userLocation, setUserLocation] = useState(DEFAULT_COORDS);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -140,8 +140,7 @@ export default function CustomerScreen() {
   const [trackedOrder, setTrackedOrder] = useState<any>(null);
   const [checkoutDeliveryAddress, setCheckoutDeliveryAddress] = useState('');
   const [selectedLocation, setSelectedLocation] = useState({ latitude: 21.5433, longitude: 39.1728 });
-  const [pickupBranch, setPickupBranch] = useState('');
-  const [branches, setBranches] = useState<any[]>([]);
+  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [discount, setDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'applepay' | 'mada' | 'card'>('cash');
@@ -806,6 +805,11 @@ export default function CustomerScreen() {
     setNameError('');
     setPhoneError('');
 
+    if (deliveryMode === 'pickup' && !selectedBranch) {
+      RNAlert.alert('تنبيه', 'الرجاء اختيار الفرع لاستلام الطلب', [{ text: 'حسناً' }]);
+      return;
+    }
+
     if (!customerName || customerName.trim() === '') {
       setNameError('الرجاء إدخال الاسم الكامل');
       return;
@@ -857,18 +861,21 @@ export default function CustomerScreen() {
       const grandTotal = Math.max(0, subtotal + deliveryFee - discount);
 
       // ── 1. Insert Main Order ────────────────────────────────────────────
+      const orderPayload = {
+        customer_name: customerName.trim(),
+        customer_phone: customerPhone.trim(),
+        total_amount: grandTotal,
+        delivery_type: deliveryMode,
+        payment_method: paymentMethod,
+        branch_name: deliveryMode === 'pickup' ? selectedBranch : null,
+        latitude: deliveryMode === 'delivery' ? selectedLocation.latitude : null,
+        longitude: deliveryMode === 'delivery' ? selectedLocation.longitude : null,
+        status: 'pending' // FORCE THIS EXACT VALUE
+      };
+
       const { data: order, error: orderError } = await supabase
         .from('orders')
-        .insert([{
-          customer_name: customerName.trim(),
-          customer_phone: customerPhone.trim(),
-          total_amount: grandTotal,
-          delivery_type: deliveryMode,
-          payment_method: paymentMethod,
-          branch_id: deliveryMode === 'pickup' ? pickupBranch : null,
-          latitude: deliveryMode === 'delivery' ? selectedLocation.latitude : null,
-          longitude: deliveryMode === 'delivery' ? selectedLocation.longitude : null,
-        }])
+        .insert([orderPayload])
         .select()
         .single();
 
@@ -1144,33 +1151,40 @@ export default function CustomerScreen() {
                   <Text style={{ fontSize: 13, color: '#64748B', marginBottom: 8, textAlign: isRTL ? 'right' : 'left' }}>
                     {getText('اختر الفرع', 'Select Branch')}
                   </Text>
-                  {branches.map((branch) => (
-                    <TouchableOpacity
-                      key={branch.id}
-                      onPress={() => setPickupBranch(branch.id)}
-                      style={[{
-                        flexDirection: isRTL ? 'row-reverse' : 'row',
-                        alignItems: 'center',
-                        paddingVertical: 11,
-                        paddingHorizontal: 14,
-                        borderRadius: 10,
-                        borderWidth: 1.5,
-                        marginBottom: 8,
-                        gap: 10,
-                      }, pickupBranch === branch.id
-                        ? { borderColor: primaryColor, backgroundColor: '#EEF2FF' }
-                        : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
-                    >
-                      <Ionicons
-                        name={pickupBranch === branch.id ? 'radio-button-on' : 'radio-button-off'}
-                        size={18}
-                        color={pickupBranch === branch.id ? primaryColor : '#9CA3AF'}
-                      />
-                      <Text style={{ fontSize: 14, color: pickupBranch === branch.id ? primaryColor : '#374151', fontWeight: pickupBranch === branch.id ? '600' : '400' }}>
-                        {branch.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  
+                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 12 }}>
+                    {['فرع الصفا', 'فرع النسيم'].map((branch) => {
+                      const isSelected = selectedBranch === branch;
+                      return (
+                        <TouchableOpacity
+                          key={branch}
+                          onPress={() => setSelectedBranch(branch)}
+                          style={[{
+                            flex: 1,
+                            flexDirection: isRTL ? 'row-reverse' : 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            paddingVertical: 14,
+                            paddingHorizontal: 12,
+                            borderRadius: 12,
+                            borderWidth: 1.5,
+                            gap: 8,
+                          }, isSelected
+                            ? { borderColor: primaryColor, backgroundColor: '#EEF2FF' }
+                            : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
+                        >
+                          <Ionicons
+                            name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                            size={20}
+                            color={isSelected ? primaryColor : '#9CA3AF'}
+                          />
+                          <Text style={{ fontSize: 14, color: isSelected ? primaryColor : '#374151', fontWeight: isSelected ? '600' : '400' }}>
+                            {branch}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
               )}
 
