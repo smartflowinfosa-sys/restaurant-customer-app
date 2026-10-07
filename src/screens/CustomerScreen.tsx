@@ -34,6 +34,7 @@ if (Platform.OS !== 'web') {
 import { supabase } from '../../lib/supabase';
 import { useRestaurant } from '../contexts/RestaurantContext';
 import * as Location from 'expo-location';
+import LoginScreen from './LoginScreen';
 
 // Hardcoded restaurant ID for testing
 const RESTAURANT_ID = '22222222-2222-2222-2222-222222222222';
@@ -118,6 +119,7 @@ export default function CustomerScreen() {
   const [offersSection, setOffersSection] = useState('offers');
   const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('pickup');
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [branches, setBranches] = useState<any[]>([]);
   const [language, setLanguage] = useState<'ar' | 'en'>('ar');
   const [userLocation, setUserLocation] = useState(DEFAULT_COORDS);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -160,6 +162,8 @@ export default function CustomerScreen() {
   const [mealQuantity, setMealQuantity] = useState<number>(1);
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [useWalletBalance, setUseWalletBalance] = useState<boolean>(false);
+  const [session, setSession] = useState<any>(null);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const hasRequestedPermissions = useRef(false);
   const insets = useSafeAreaInsets();
 
@@ -169,6 +173,32 @@ export default function CustomerScreen() {
   const CART_STORAGE_KEY = '@restaurant_cart';
 
   // ALL USEEFFECT HOOKS MUST BE DECLARED BEFORE ANY CONDITIONAL RETURNS
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session?.user) {
+        setCustomerPhone(session.user.phone?.replace('+966', '0') || '');
+        if (session.user.user_metadata?.name) {
+          setCustomerName(session.user.user_metadata.name);
+        }
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session?.user) {
+        setCustomerPhone(session.user.phone?.replace('+966', '0') || '');
+        if (session.user.user_metadata?.name) {
+          setCustomerName(session.user.user_metadata.name);
+        }
+      }
+    });
+    
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // Load cart from AsyncStorage on mount
   useEffect(() => {
@@ -203,34 +233,57 @@ export default function CustomerScreen() {
     saveCart();
   }, [cart, cartReady]);
 
+  const [resumeCheckout, setResumeCheckout] = useState(false);
+
+  useEffect(() => {
+    if (session && resumeCheckout) {
+      setResumeCheckout(false);
+      setIsCartModalVisible(true);
+      // Return to cart modal without auto-submitting
+    }
+  }, [session, resumeCheckout]);
+
+  const normalizePhone = (phone: string) => {
+    let p = phone.trim();
+    if (p.startsWith('+966')) p = p.slice(4);
+    if (p.startsWith('05')) p = p.slice(1);
+    return p;
+  };
+
   useEffect(() => {
     const fetchWallet = async () => {
-      const phoneToUse = customerPhone || '+966 50 123 4567';
+      if (!session?.user?.phone) {
+        setWalletBalance(0);
+        return;
+      }
+      const phoneToUse = normalizePhone(session.user.phone);
       try {
         const { data, error } = await supabase
           .from('customers')
-          .select('wallet_balance, expires_at, wallet_expires_at')
+          .select('wallet_balance')
           .eq('phone', phoneToUse)
           .single();
         
+        if (error) {
+          console.warn('Wallet fetch error (handled):', error);
+          setWalletBalance(0);
+          return;
+        }
+        
         if (data) {
-          const expiresAt = data.expires_at || data.wallet_expires_at;
-          if (expiresAt && new Date(expiresAt) < new Date()) {
-            setWalletBalance(0);
-          } else {
-            setWalletBalance(data.wallet_balance || 0);
-          }
+          setWalletBalance(data.wallet_balance || 0);
         } else {
           setWalletBalance(0);
         }
       } catch (e) {
         console.error('Error fetching wallet:', e);
+        setWalletBalance(0);
       }
     };
-    if (isAppReady || customerPhone) {
+    if (isAppReady && session?.user?.phone) {
       fetchWallet();
     }
-  }, [customerPhone, isAppReady]);
+  }, [session?.user?.phone, isAppReady]);
 
   useEffect(() => {
     if (selectedMeal) {
@@ -286,7 +339,7 @@ export default function CustomerScreen() {
 
   useEffect(() => {
     const fetchOrders = async () => {
-      if (!customerPhone || customerPhone.length < 9) {
+      if (!session?.user?.phone) {
         setOrders([]);
         return;
       }
@@ -294,11 +347,13 @@ export default function CustomerScreen() {
         setOrdersLoading(true);
         const { data, error } = await supabase
           .from('orders')
-          .select('*, order_items(*), restaurant_branches(name)')
-          .eq('customer_phone', customerPhone)
+          .select('*, order_items(*)')
+          .eq('customer_phone', session.user.phone.replace('+966', '0'))
           .order('created_at', { ascending: false });
         
-        if (!error && data) {
+        if (error) {
+          console.error('Supabase fetchOrders error:', error);
+        } else if (data) {
           setOrders(data);
         }
       } catch (e) {
@@ -308,7 +363,7 @@ export default function CustomerScreen() {
       }
     };
     fetchOrders();
-  }, [customerPhone]);
+  }, [session?.user?.phone]);
 
   useEffect(() => {
     (async () => {
@@ -521,14 +576,21 @@ export default function CustomerScreen() {
       }
 
       // Fetch branches
-      const { data: branchesData } = await supabase
-        .from('restaurant_branches')
-        .select('*')
-        .eq('restaurant_id', activeRestaurantId)
-        .eq('is_active', true);
-      if (branchesData && branchesData.length > 0) {
-        setBranches(branchesData);
-        if (!pickupBranch) setPickupBranch(branchesData[0].id);
+      try {
+        const { data: branchesData, error: branchesError } = await supabase
+          .from('restaurant_branches')
+          .select('*');
+        
+        if (branchesError) throw branchesError;
+        if (branchesData && branchesData.length > 0) {
+          setBranches(branchesData);
+          if (!selectedBranch) setSelectedBranch(branchesData[0].name || branchesData[0].id);
+        } else {
+          setBranches([]);
+        }
+      } catch (err) {
+        console.error('Error fetching branches:', err);
+        setBranches([]);
       }
 
       // Fetch menu items
@@ -543,24 +605,32 @@ export default function CustomerScreen() {
       setMenuItems(itemsData || []);
 
       // Fetch offers
-      const today = new Date().toISOString();
-      const { data: offersData, error: offersError } = await supabase
-        .from('offers')
-        .select('*')
-        .eq('restaurant_id', activeRestaurantId);
-      
-      console.log('Fetched Offers:', offersData, 'Error:', offersError);
-      if (offersData) setOffers(offersData);
+      try {
+        const { data: offersData, error: offersError } = await supabase
+          .from('offers')
+          .select('*')
+          .eq('restaurant_id', activeRestaurantId);
+        
+        if (offersError) throw offersError;
+        if (offersData) setOffers(offersData);
+      } catch (err) {
+        console.error('Error fetching offers:', err);
+        setOffers([]);
+      }
 
       // Fetch promo codes
-      const { data: promoData, error: promoError } = await supabase
-        .from('promo_codes')
-        .select('*')
-        .eq('restaurant_id', activeRestaurantId)
-        .eq('is_active', true);
-      
-      console.log('Fetched Promo Codes:', promoData, 'Error:', promoError);
-      if (promoData) setPromoCodesList(promoData);
+      try {
+        const { data: promoData, error: promoError } = await supabase
+          .from('promo_codes')
+          .select('*')
+          .eq('restaurant_id', activeRestaurantId);
+        
+        if (promoError) throw promoError;
+        if (promoData) setPromoCodesList(promoData);
+      } catch (err) {
+        console.error('Error fetching promo codes:', err);
+        setPromoCodesList([]);
+      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -823,6 +893,8 @@ export default function CustomerScreen() {
   };
 
   const handlePlaceOrder = async () => {
+    if (isSubmitting) return; // Prevent double submission
+    
     // Cross-platform alert: RNAlert.alert is a no-op on React Native Web
     const showAlert = (title: string, message: string) => {
       if (typeof window !== 'undefined' && (window as any).alert) {
@@ -835,50 +907,49 @@ export default function CustomerScreen() {
     // ── Validation ────────────────────────────────────────────────
     setNameError('');
     setPhoneError('');
+    setCardError('');
+    let hasError = false;
 
     if (deliveryMode === 'pickup' && !selectedBranch) {
       RNAlert.alert('تنبيه', 'الرجاء اختيار الفرع لاستلام الطلب', [{ text: 'حسناً' }]);
-      return;
+      hasError = true;
     }
 
     if (!customerName || customerName.trim() === '') {
-      setNameError('الرجاء إدخال الاسم الكامل');
-      return;
+      setNameError('الرجاء إدخال الاسم بالكامل');
+      hasError = true;
     }
 
     const saudiPhoneRegex = /^05\d{8}$/;
     if (!customerPhone || !saudiPhoneRegex.test(customerPhone.trim())) {
       setPhoneError('الرجاء إدخال رقم جوال سعودي صحيح يتكون من 10 أرقام ويبدأ بـ 05');
-      return;
+      hasError = true;
     }
-
 
     if (paymentMethod === 'card') {
       if (!cardNumber || !/^\d{16}$/.test(cardNumber.replace(/\s+/g, ''))) {
         setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
-        return;
-      }
-      if (!cardCVV || !/^\d{3,4}$/.test(cardCVV.trim())) {
+        hasError = true;
+      } else if (!cardCVV || !/^\d{3,4}$/.test(cardCVV.trim())) {
         setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
-        return;
-      }
-      if (!cardExpiry || !/^(0[1-9]|1[0-2])\/\d{2}$/.test(cardExpiry.trim())) {
+        hasError = true;
+      } else if (!cardExpiry || !/^(0[1-9]|1[0-2])\/\d{2}$/.test(cardExpiry.trim())) {
         setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
-        return;
+        hasError = true;
+      } else {
+        const [expMonth, expYear] = cardExpiry.split('/').map(Number);
+        const currentDate = new Date();
+        const currentMonth = currentDate.getMonth() + 1;
+        const currentYear = currentDate.getFullYear() % 100;
+
+        if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
+          setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
+          hasError = true;
+        }
       }
-
-      const [expMonth, expYear] = cardExpiry.split('/').map(Number);
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth() + 1;
-      const currentYear = currentDate.getFullYear() % 100;
-
-      if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
-        setCardError('بيانات البطاقة غير صحيحة أو منتهية الصلاحية');
-        return;
-      }
-
-      setCardError('');
     }
+
+    if (hasError) return;
 
     try {
       setIsSubmitting(true);
@@ -899,9 +970,8 @@ export default function CustomerScreen() {
       // ── 1. Insert Main Order ────────────────────────────────────────────
       const orderPayload = {
         customer_name: customerName.trim(),
-        customer_phone: customerPhone.trim(),
+        customer_phone: normalizePhone(customerPhone),
         total_amount: grandTotal,
-        wallet_amount_used: amountPaidFromWallet,
         delivery_type: deliveryMode,
         payment_method: paymentMethod,
         branch_name: deliveryMode === 'pickup' ? selectedBranch : null,
@@ -1150,7 +1220,7 @@ export default function CustomerScreen() {
                         showsMyLocationButton={false}
                         onRegionChangeComplete={(region: any) => setSelectedLocation({ latitude: region.latitude, longitude: region.longitude })}
                       />
-                      <View style={{ position: 'absolute', top: '50%', left: '50%', marginLeft: -16, marginTop: -32, pointerEvents: 'none' }}>
+                      <View pointerEvents="none" style={{ position: 'absolute', top: '50%', left: '50%', marginLeft: -16, marginTop: -32 }}>
                         <Ionicons name="location" size={32} color="#EF4444" />
                       </View>
                     </>
@@ -1473,15 +1543,26 @@ export default function CustomerScreen() {
             <View style={[styles.cartModalFooter, { paddingTop: 12 }]}>
               <TouchableOpacity
                 style={[styles.cartCheckoutButton, { backgroundColor: primaryColor }, isSubmitting && { opacity: 0.7 }]}
-                onPress={handlePlaceOrder}
+                onPress={() => {
+                  console.log('[Checkout] login button pressed');
+                  if (!session) {
+                    setIsCartModalVisible(false);
+                    setResumeCheckout(true);
+                    setTimeout(() => setShowAuthModal(true), 400);
+                  } else {
+                    handlePlaceOrder();
+                  }
+                }}
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />
-                    <Text style={styles.cartCheckoutButtonText}>{getText('إرسال الطلب', 'Place Order')}</Text>
+                    <Ionicons name={session ? "checkmark-circle-outline" : "log-in-outline"} size={20} color="#FFFFFF" />
+                    <Text style={styles.cartCheckoutButtonText}>
+                      {session ? getText('تأكيد وإرسال الطلب', 'Confirm & Submit Order') : getText('تسجيل الدخول للمتابعة', 'Login to Continue')}
+                    </Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -1756,12 +1837,27 @@ export default function CustomerScreen() {
   const renderOrdersTab = () => (
     <View style={styles.ordersContainer}>
       <Text style={[styles.ordersTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{getText('طلباتي السابقة', 'My Previous Orders')}</Text>
+      {!session ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, marginTop: 40 }}>
+          <Ionicons name="lock-closed-outline" size={64} color="#CBD5E1" />
+          <Text style={{ fontSize: 18, color: '#475569', marginTop: 16, marginBottom: 24, textAlign: 'center', fontWeight: '600' }}>
+            {getText('يرجى تسجيل الدخول لعرض بياناتك', 'Please log in to view your data')}
+          </Text>
+          <TouchableOpacity 
+            style={{ backgroundColor: primaryColor, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12, flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 8 }}
+            onPress={() => setShowAuthModal(true)}
+          >
+            <Ionicons name="log-in-outline" size={20} color="#FFFFFF" />
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>{getText('تسجيل الدخول', 'Login')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
       <ScrollView style={styles.ordersContent} showsVerticalScrollIndicator={false}>
         {ordersLoading ? (
           <ActivityIndicator size="large" color={primaryColor} style={{ marginTop: 40 }} />
         ) : orders.length === 0 ? (
           <Text style={{ textAlign: 'center', marginTop: 40, color: '#64748B' }}>
-            {customerPhone ? getText('لا توجد طلبات سابقة', 'No previous orders found') : getText('يرجى إدخال رقم هاتفك في صفحة إتمام الطلب لعرض طلباتك', 'Please enter your phone number during checkout to see your orders')}
+            {getText('لا توجد طلبات سابقة', 'No previous orders found')}
           </Text>
         ) : (
           orders.map((order, index) => (
@@ -1777,6 +1873,7 @@ export default function CustomerScreen() {
           ))
         )}
       </ScrollView>
+      )}
     </View>
   );
 
@@ -1861,7 +1958,10 @@ export default function CustomerScreen() {
           <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
             {renderSettingItem('person-outline', 'الملف الشخصي', 'Profile', () => setIsProfileModalVisible(true))}
             {renderSettingItem('location-outline', 'العناوين المحفوظة', 'Saved Addresses', () => setActiveSection('SavedAddresses'))}
-            {renderSettingItem('wallet-outline', 'المحفظة والرصيد', 'Wallet & Balance', () => setActiveSection('Wallet'), undefined, true)}
+            {renderSettingItem('wallet-outline', 'المحفظة والرصيد', 'Wallet & Balance', () => {
+              if (!session) setShowAuthModal(true);
+              else setActiveSection('Wallet');
+            }, undefined, true)}
           </View>
 
           {/* Section 2: Settings */}
@@ -1882,12 +1982,23 @@ export default function CustomerScreen() {
           </View>
 
           {/* Logout Button */}
-          <TouchableOpacity
-            style={[styles.logoutButton, { flexDirection: isRTL ? 'row-reverse' : 'row', marginHorizontal: 16, marginTop: 32, borderRadius: 12 }]}
-          >
-            <Ionicons name="log-out-outline" size={24} color="#DC3545" />
-            <Text style={styles.logoutButtonText}>{getText('تسجيل الخروج', 'Logout')}</Text>
-          </TouchableOpacity>
+          {session ? (
+            <TouchableOpacity
+              style={[styles.logoutButton, { flexDirection: isRTL ? 'row-reverse' : 'row', marginHorizontal: 16, marginTop: 32, borderRadius: 12 }]}
+              onPress={async () => { await supabase.auth.signOut(); }}
+            >
+              <Ionicons name="log-out-outline" size={24} color="#DC3545" />
+              <Text style={styles.logoutButtonText}>{getText('تسجيل الخروج', 'Logout')}</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.logoutButton, { flexDirection: isRTL ? 'row-reverse' : 'row', marginHorizontal: 16, marginTop: 32, borderRadius: 12, backgroundColor: primaryColor, borderColor: primaryColor }]}
+              onPress={() => setShowAuthModal(true)}
+            >
+              <Ionicons name="log-in-outline" size={24} color="#FFFFFF" />
+              <Text style={[styles.logoutButtonText, { color: '#FFFFFF' }]}>{getText('تسجيل الدخول', 'Login')}</Text>
+            </TouchableOpacity>
+          )}
 
         </ScrollView>
       </View>
@@ -2419,6 +2530,35 @@ export default function CustomerScreen() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* Auth Modal */}
+      <Modal
+        visible={showAuthModal}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowAuthModal(false);
+          setResumeCheckout(false);
+        }}
+      >
+        <LoginScreen 
+          initialName={customerName}
+          initialPhone={customerPhone ? normalizePhone(customerPhone) : ''} 
+          onLoginSuccess={(mockSession) => {
+            if (mockSession) {
+              setSession(mockSession as any);
+              if (mockSession.user) {
+                if (!customerPhone) {
+                  setCustomerPhone(mockSession.user.phone?.replace('+966', '0') || '');
+                }
+                if (!customerName && mockSession.user.user_metadata?.name) {
+                  setCustomerName(mockSession.user.user_metadata.name);
+                }
+              }
+            }
+            setShowAuthModal(false);
+          }} 
+        />
       </Modal>
 
       {/* Profile Modal */}
@@ -3545,6 +3685,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '90%',
+    flexShrink: 1,
     paddingBottom: 24,
   },
   cartModalHeader: {
