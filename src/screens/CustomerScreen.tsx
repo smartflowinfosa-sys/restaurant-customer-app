@@ -158,6 +158,8 @@ export default function CustomerScreen() {
   const [mealOptions, setMealOptions] = useState<any[]>([]);
   const [selectedChoices, setSelectedChoices] = useState<Record<string, any>>({});
   const [mealQuantity, setMealQuantity] = useState<number>(1);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [useWalletBalance, setUseWalletBalance] = useState<boolean>(false);
   const hasRequestedPermissions = useRef(false);
   const insets = useSafeAreaInsets();
 
@@ -200,6 +202,35 @@ export default function CustomerScreen() {
     };
     saveCart();
   }, [cart, cartReady]);
+
+  useEffect(() => {
+    const fetchWallet = async () => {
+      const phoneToUse = customerPhone || '+966 50 123 4567';
+      try {
+        const { data, error } = await supabase
+          .from('customers')
+          .select('wallet_balance, expires_at, wallet_expires_at')
+          .eq('phone', phoneToUse)
+          .single();
+        
+        if (data) {
+          const expiresAt = data.expires_at || data.wallet_expires_at;
+          if (expiresAt && new Date(expiresAt) < new Date()) {
+            setWalletBalance(0);
+          } else {
+            setWalletBalance(data.wallet_balance || 0);
+          }
+        } else {
+          setWalletBalance(0);
+        }
+      } catch (e) {
+        console.error('Error fetching wallet:', e);
+      }
+    };
+    if (isAppReady || customerPhone) {
+      fetchWallet();
+    }
+  }, [customerPhone, isAppReady]);
 
   useEffect(() => {
     if (selectedMeal) {
@@ -858,13 +889,19 @@ export default function CustomerScreen() {
         0
       );
       const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
-      const grandTotal = Math.max(0, subtotal + deliveryFee - discount);
+      let grandTotal = Math.max(0, subtotal + deliveryFee - discount);
+      let amountPaidFromWallet = 0;
+      if (useWalletBalance && walletBalance > 0) {
+        amountPaidFromWallet = Math.min(grandTotal, walletBalance);
+        grandTotal = Math.max(0, grandTotal - amountPaidFromWallet);
+      }
 
       // ── 1. Insert Main Order ────────────────────────────────────────────
       const orderPayload = {
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
         total_amount: grandTotal,
+        wallet_amount_used: amountPaidFromWallet,
         delivery_type: deliveryMode,
         payment_method: paymentMethod,
         branch_name: deliveryMode === 'pickup' ? selectedBranch : null,
@@ -933,7 +970,14 @@ export default function CustomerScreen() {
   const renderCartModal = () => {
     const subtotal = cart.reduce((sum, item) => sum + ((item.final_price || item.price) * item.quantity), 0);
     const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
-    const total = subtotal + deliveryFee - discount;
+    let total = subtotal + deliveryFee - discount;
+    if (useWalletBalance && walletBalance > 0) {
+      total = Math.max(0, total - walletBalance);
+    }
+    const cashbackPercentage = restaurantData?.cashback_percentage || 5;
+    const minOrderValue = restaurantData?.min_order_value || 100;
+    const potentialCashback = subtotal * (cashbackPercentage / 100);
+    const amountToMinOrder = Math.max(0, minOrderValue - subtotal);
 
     const sectionTitle = (ar: string, en: string) => (
       <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginBottom: 14, marginTop: 4 }}>
@@ -1344,6 +1388,64 @@ export default function CustomerScreen() {
               )}
 
               {/* ── SECTION 6: Financial Summary ── */}
+              {walletBalance > 0 && (
+                <View style={{ marginBottom: 20 }}>
+                  {sectionTitle('الدفع بالمحفظة', 'Pay with Wallet')}
+                  <TouchableOpacity
+                    style={[{
+                      flexDirection: isRTL ? 'row-reverse' : 'row',
+                      alignItems: 'center',
+                      padding: 16,
+                      borderWidth: 1.5,
+                      borderRadius: 12,
+                      gap: 12
+                    }, useWalletBalance ? { borderColor: primaryColor, backgroundColor: '#EEF2FF' } : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
+                    onPress={() => setUseWalletBalance(!useWalletBalance)}
+                  >
+                    <Ionicons name="wallet" size={24} color={useWalletBalance ? primaryColor : '#9CA3AF'} />
+                    <View style={{ flex: 1, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: useWalletBalance ? primaryColor : '#1E293B' }}>
+                        {getText('الدفع باستخدام رصيد المحفظة', 'Pay with Wallet Balance')}
+                      </Text>
+                      <Text style={{ fontSize: 13, color: '#64748B', marginTop: 4 }}>
+                        {getText(`الرصيد المتاح: ${walletBalance.toFixed(2)} ر.س`, `Available Balance: ${walletBalance.toFixed(2)} SAR`)}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name={useWalletBalance ? 'checkbox' : 'square-outline'}
+                      size={24}
+                      color={useWalletBalance ? primaryColor : '#CBD5E1'}
+                    />
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {cashbackPercentage > 0 && (
+                <View style={{ marginBottom: 20 }}>
+                  {subtotal < minOrderValue ? (
+                    <View style={{ backgroundColor: '#EFF6FF', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#BFDBFE', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 10 }}>
+                      <Ionicons name="bag-handle" size={22} color="#3B82F6" />
+                      <Text style={{ color: '#1D4ED8', fontSize: 13, fontWeight: '600', flex: 1, textAlign: isRTL ? 'right' : 'left' }}>
+                        {getText(
+                          `أضف منتجات بقيمة ${amountToMinOrder.toFixed(2)} ريال إضافية لتحصل على كاش باك بنسبة ${cashbackPercentage}%!`,
+                          `Add items worth ${amountToMinOrder.toFixed(2)} SAR to earn ${cashbackPercentage}% cashback!`
+                        )}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ backgroundColor: '#ECFDF5', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#A7F3D0', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 10 }}>
+                      <Ionicons name="gift" size={22} color="#10B981" />
+                      <Text style={{ color: '#047857', fontSize: 13, fontWeight: '600', flex: 1, textAlign: isRTL ? 'right' : 'left' }}>
+                        {getText(
+                          `رائع! 🤩 ستحصل على ${potentialCashback.toFixed(2)} ريال في محفظتك عند إتمام هذا الطلب!`,
+                          `Awesome! 🤩 You will earn ${potentialCashback.toFixed(2)} SAR in your wallet upon completing this order!`
+                        )}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
               {sectionTitle('ملخص الطلب', 'Order Summary')}
               <View style={{ backgroundColor: '#F9FAFB', borderRadius: 14, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: '#E5E7EB' }}>
                 <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -2338,6 +2440,17 @@ export default function CustomerScreen() {
           </View>
 
           <ScrollView style={styles.profileModalContent} showsVerticalScrollIndicator={false}>
+            {/* Wallet Balance Section */}
+            <View style={{ backgroundColor: '#EEF2FF', padding: 20, borderRadius: 16, marginBottom: 20, alignItems: 'center' }}>
+              <Ionicons name="wallet-outline" size={32} color={primaryColor} style={{ marginBottom: 8 }} />
+              <Text style={{ fontSize: 14, color: '#64748B', marginBottom: 4 }}>
+                {getText('رصيد المحفظة', 'Wallet Balance')}
+              </Text>
+              <Text style={{ fontSize: 24, fontWeight: 'bold', color: primaryColor }}>
+                {walletBalance.toFixed(2)} {getText('ر.س', 'SAR')}
+              </Text>
+            </View>
+
             {/* Subtitle Banner */}
             <View style={styles.profileSubtitleBanner}>
               <Text style={styles.profileSubtitleText}>
