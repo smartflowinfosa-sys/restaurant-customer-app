@@ -28,8 +28,11 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 let MapView: any = null;
+let PROVIDER_GOOGLE: any = null;
 if (Platform.OS !== 'web') {
-  MapView = require('react-native-maps').default;
+  const maps = require('react-native-maps');
+  MapView = maps.default;
+  PROVIDER_GOOGLE = maps.PROVIDER_GOOGLE;
 }
 import { supabase } from '../../lib/supabase';
 import { useRestaurant } from '../contexts/RestaurantContext';
@@ -234,6 +237,39 @@ export default function CustomerScreen() {
   }, [cart, cartReady]);
 
   const [resumeCheckout, setResumeCheckout] = useState(false);
+  const mapRef = useRef<any>(null);
+
+  const handleLocateMe = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        if (typeof window !== 'undefined' && (window as any).alert) {
+          (window as any).alert('Please enable location services.');
+        } else {
+          RNAlert.alert('تنبيه', 'الرجاء تفعيل خدمات الموقع', [{ text: 'حسناً' }]);
+        }
+        return;
+      }
+      const location = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = location.coords;
+      
+      mapRef.current?.animateToRegion({
+        latitude,
+        longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      });
+      
+      setMapRegion({
+        latitude,
+        longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      });
+    } catch (error) {
+      console.error('Error getting location:', error);
+    }
+  };
 
   useEffect(() => {
     if (session && resumeCheckout) {
@@ -1207,6 +1243,7 @@ export default function CustomerScreen() {
                   ) : (
                     <>
                       <MapView
+                        provider={PROVIDER_GOOGLE}
                         style={{ flex: 1 }}
                         initialRegion={{
                           latitude: selectedLocation.latitude,
@@ -2424,8 +2461,10 @@ export default function CustomerScreen() {
                   const MapView = Maps.default;
                   const { Marker, PROVIDER_GOOGLE } = Maps;
                   return (
+                    <>
                     <MapView
-                      provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+                      ref={mapRef}
+                      provider={PROVIDER_GOOGLE}
                       style={{ flex: 1 }}
                       region={mapRegion}
                       showsUserLocation={true}
@@ -2452,6 +2491,28 @@ export default function CustomerScreen() {
                         </View>
                       </Marker>
                     </MapView>
+                    <TouchableOpacity
+                      style={{
+                        position: 'absolute',
+                        bottom: 20,
+                        right: 20,
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: 30,
+                        width: 50,
+                        height: 50,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.25,
+                        shadowRadius: 3.84,
+                        elevation: 5,
+                      }}
+                      onPress={handleLocateMe}
+                    >
+                      <Ionicons name="locate" size={24} color="#1E293B" />
+                    </TouchableOpacity>
+                    </>
                   );
                 })()
               )
