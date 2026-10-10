@@ -19,6 +19,7 @@ import {
   LayoutAnimation,
   UIManager,
   KeyboardAvoidingView,
+  Switch,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -37,6 +38,7 @@ if (Platform.OS !== 'web') {
 import { supabase } from '../../lib/supabase';
 import { useRestaurant } from '../contexts/RestaurantContext';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import LoginScreen from './LoginScreen';
 
 // Hardcoded restaurant ID for testing
@@ -237,6 +239,43 @@ export default function CustomerScreen() {
   }, [cart, cartReady]);
 
   const [resumeCheckout, setResumeCheckout] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+
+  useEffect(() => {
+    const registerForPushNotificationsAsync = async () => {
+      if (Platform.OS === 'web') return;
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') {
+        setPushEnabled(false);
+        return;
+      }
+      setPushEnabled(true);
+    };
+    registerForPushNotificationsAsync();
+  }, []);
+
+  const toggleNotifications = async (value: boolean) => {
+    if (Platform.OS === 'web') return;
+    if (value) {
+      const { status } = await Notifications.requestPermissionsAsync();
+      setPushEnabled(status === 'granted');
+      if (status !== 'granted') {
+        if (typeof window !== 'undefined' && (window as any).alert) {
+          (window as any).alert('الرجاء تفعيل الإشعارات من إعدادات الجهاز');
+        } else {
+          RNAlert.alert('تنبيه', 'الرجاء تفعيل الإشعارات من إعدادات الجهاز', [{ text: 'حسناً' }]);
+        }
+      }
+    } else {
+      setPushEnabled(false);
+    }
+  };
+
   const mapRef = useRef<any>(null);
 
   const handleLocateMe = async () => {
@@ -1995,6 +2034,7 @@ export default function CustomerScreen() {
           <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
             {renderSettingItem('person-outline', 'الملف الشخصي', 'Profile', () => setIsProfileModalVisible(true))}
             {renderSettingItem('location-outline', 'العناوين المحفوظة', 'Saved Addresses', () => setActiveSection('SavedAddresses'))}
+            {renderSettingItem('notifications-outline', 'الإشعارات', 'Notifications', () => {}, <Switch value={pushEnabled} onValueChange={toggleNotifications} trackColor={{ false: '#E2E8F0', true: primaryColor }} thumbColor="#FFFFFF" />)}
             {renderSettingItem('wallet-outline', 'المحفظة والرصيد', 'Wallet & Balance', () => {
               if (!session) setShowAuthModal(true);
               else setActiveSection('Wallet');
@@ -2004,15 +2044,13 @@ export default function CustomerScreen() {
           {/* Section 2: Settings */}
           {sectionTitle('الإعدادات', 'Settings')}
           <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
-            {renderSettingItem('language-outline', 'لغة التطبيق', 'App Language', () => { }, languageToggle)}
-            {renderSettingItem('notifications-outline', 'إعدادات الإشعارات', 'Notifications Settings', () => setActiveSection('Notifications'), undefined, true)}
+            {renderSettingItem('language-outline', 'لغة التطبيق', 'App Language', () => { }, languageToggle, true)}
           </View>
 
           {/* Section 3: Support & Info */}
           {sectionTitle('الدعم والمعلومات', 'Support & Info')}
           <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
             {renderSettingItem('chatbubbles-outline', 'تواصل معنا', 'Contact Us', () => setActiveSection('Contact'))}
-            {renderSettingItem('help-circle-outline', 'الأسئلة الشائعة', 'FAQ', () => setActiveSection('FAQ'))}
             {renderSettingItem('document-text-outline', 'الشروط والأحكام', 'Terms & Conditions', () => setIsTermsModalVisible(true))}
             {renderSettingItem('lock-closed-outline', 'سياسة الخصوصية', 'Privacy Policy', () => setIsPrivacyModalVisible(true))}
             {renderSettingItem('information-circle-outline', 'عن التطبيق', 'About the App', () => setActiveSection('About'), undefined, true)}
@@ -2277,25 +2315,88 @@ export default function CustomerScreen() {
           {activeSection === 'SavedAddresses' && (
             <View style={{ marginTop: 10 }}>
               <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16, textAlign: isRTL ? 'right' : 'left' }}>{getText('العناوين المحفوظة', 'Saved Addresses')}</Text>
-              <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', padding: 16, backgroundColor: '#F1F5F9', borderRadius: 12 }}>
-                <Ionicons name="location" size={24} color={primaryColor} />
-                <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, textAlign: isRTL ? 'right' : 'left', fontWeight: '500' }}>المنزل - حي الصفا</Text>
+              
+              {/* Home Slot */}
+              <View style={{ marginBottom: 12, padding: 16, backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginBottom: 8 }}>
+                  <Ionicons name="home-outline" size={20} color={primaryColor} />
+                  <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, fontWeight: 'bold', textAlign: isRTL ? 'right' : 'left' }}>{getText('المنزل', 'Home')}</Text>
+                </View>
+                <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
+                  <TouchableOpacity style={{ marginTop: 4 }}>
+                    <Text style={{ color: primaryColor, fontWeight: '600', fontSize: 14 }}>+ {getText('إضافة عنوان', 'Add Address')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Work Slot */}
+              <View style={{ marginBottom: 12, padding: 16, backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginBottom: 8 }}>
+                  <Ionicons name="briefcase-outline" size={20} color={primaryColor} />
+                  <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, fontWeight: 'bold', textAlign: isRTL ? 'right' : 'left' }}>{getText('العمل', 'Work')}</Text>
+                </View>
+                <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
+                  <TouchableOpacity style={{ marginTop: 4 }}>
+                    <Text style={{ color: primaryColor, fontWeight: '600', fontSize: 14 }}>+ {getText('إضافة عنوان', 'Add Address')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Rest House Slot */}
+              <View style={{ marginBottom: 12, padding: 16, backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginBottom: 8 }}>
+                  <Ionicons name="cafe-outline" size={20} color={primaryColor} />
+                  <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, fontWeight: 'bold', textAlign: isRTL ? 'right' : 'left' }}>{getText('الاستراحة', 'Rest House')}</Text>
+                </View>
+                <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
+                  <TouchableOpacity style={{ marginTop: 4 }}>
+                    <Text style={{ color: primaryColor, fontWeight: '600', fontSize: 14 }}>+ {getText('إضافة عنوان', 'Add Address')}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           )}
           {activeSection === 'Contact' && (
             <View style={{ marginTop: 10 }}>
               <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16, textAlign: isRTL ? 'right' : 'left' }}>{getText('تواصل معنا', 'Contact Us')}</Text>
-              <Text style={{ fontSize: 16, marginBottom: 8, textAlign: isRTL ? 'right' : 'left' }}>📞 920000000</Text>
-              <Text style={{ fontSize: 16, textAlign: isRTL ? 'right' : 'left' }}>✉️ support@restaurant.com</Text>
+              
+              {isRestaurantLoading ? (
+                <ActivityIndicator size="small" color={primaryColor} style={{ marginTop: 10 }} />
+              ) : (!restaurantData?.support_phone && !restaurantData?.support_email) ? (
+                <View style={{ alignItems: 'center', marginTop: 20 }}>
+                  <Ionicons name="information-circle-outline" size={48} color="#9CA3AF" />
+                  <Text style={{ fontSize: 16, color: '#64748B', marginTop: 12 }}>{getText('معلومات التواصل غير متوفرة حالياً', 'Contact info not available currently')}</Text>
+                </View>
+              ) : (
+                <>
+                  {restaurantData?.support_phone && (
+                    <Text style={{ fontSize: 16, marginBottom: 8, textAlign: isRTL ? 'right' : 'left' }}>📞 {restaurantData.support_phone}</Text>
+                  )}
+                  {restaurantData?.support_email && (
+                    <Text style={{ fontSize: 16, textAlign: isRTL ? 'right' : 'left' }}>✉️ {restaurantData.support_email}</Text>
+                  )}
+                </>
+              )}
             </View>
           )}
-          {(activeSection === 'Notifications' || activeSection === 'FAQ' || activeSection === 'About') && (
-            <View style={{ alignItems: 'center', marginTop: 40 }}>
-              <Ionicons name="construct" size={48} color="#9CA3AF" />
-              <Text style={{ fontSize: 18, color: '#64748B', marginTop: 16 }}>{getText('سيتم تفعيل هذه الشاشة قريباً', 'Coming soon')}</Text>
+
+          {activeSection === 'About' && (
+            <View style={{ marginTop: 10 }}>
+              <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16, textAlign: isRTL ? 'right' : 'left' }}>{getText('عن التطبيق', 'About the App')}</Text>
+              
+              {isRestaurantLoading ? (
+                <ActivityIndicator size="small" color={primaryColor} style={{ marginTop: 10 }} />
+              ) : (
+                <View style={{ backgroundColor: '#F8FAFC', padding: 16, borderRadius: 12, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 15, color: '#475569', lineHeight: 24, textAlign: 'center', fontWeight: 'bold' }}>
+                    Powered by SmartFlow
+                  </Text>
+                </View>
+              )}
             </View>
           )}
+
+
 
           <TouchableOpacity
             style={{ backgroundColor: primaryColor, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 40 }}
@@ -2652,15 +2753,8 @@ export default function CustomerScreen() {
               </Text>
             </View>
 
-            {/* Subtitle Banner */}
-            <View style={styles.profileSubtitleBanner}>
-              <Text style={styles.profileSubtitleText}>
-                {getText('أهلاً! ابق ملفك الشخصي محدثاً لنستطيع خدمتك بأفضل شكل ممكن', 'Welcome! Keep your profile updated so we can serve you better')}
-              </Text>
-            </View>
-
             {/* Form Fields */}
-            <View style={styles.profileForm}>
+            <View style={[styles.profileForm, { marginTop: 20 }]}>
               <View style={styles.profileField}>
                 <Text style={styles.profileFieldLabel}>{getText('اسم', 'Name')}</Text>
                 <TextInput
@@ -2673,7 +2767,7 @@ export default function CustomerScreen() {
                 <Text style={styles.profileFieldLabel}>{getText('رقم الجوال', 'Phone')}</Text>
                 <TextInput
                   style={[styles.profileInput, styles.profileInputDisabled, { textAlign: 'right', writingDirection: 'rtl' }]}
-                  value="+966 50 123 4567"
+                  value={session?.user?.phone || ''}
                   editable={false}
                   placeholderTextColor="#94A3B8"
                 />
