@@ -42,7 +42,7 @@ import * as Notifications from 'expo-notifications';
 import LoginScreen from './LoginScreen';
 
 // Hardcoded restaurant ID for testing
-const RESTAURANT_ID = '22222222-2222-2222-2222-222222222222';
+const RESTAURANT_ID = 'asmak_almohit_001';
 
 // Turquoise color scheme
 const TURQUOISE_COLOR = '#00B4D8';
@@ -64,8 +64,15 @@ interface Category {
 
 interface Restaurant {
   id: string;
-  name: string;
+  name?: string;
+  restaurant_name?: string;
   primary_color: string;
+  contact_email?: string;
+  is_tiktok_enabled?: boolean;
+  tiktok_handle?: string;
+  is_instagram_enabled?: boolean;
+  instagram_handle?: string;
+  is_whatsapp_enabled?: boolean;
 }
 
 interface MenuItem {
@@ -106,7 +113,8 @@ export default function CustomerScreen() {
   // ALL HOOKS MUST BE DECLARED FIRST - Strict Rules of Hooks
   const [restaurant, setRestaurant] = useState<Restaurant | null>({
     id: RESTAURANT_ID,
-    name: restaurantData?.restaurant_name || 'SmartFlow Restaurant',
+    name: restaurantData?.restaurant_name || '',
+    restaurant_name: restaurantData?.restaurant_name || '',
     primary_color: TURQUOISE_COLOR,
   });
   const [categories, setCategories] = useState<Category[]>([{ id: 'all', name: 'الكل' }]);
@@ -240,6 +248,10 @@ export default function CustomerScreen() {
 
   const [resumeCheckout, setResumeCheckout] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
+  const [isAddAddressModalVisible, setIsAddAddressModalVisible] = useState(false);
+  const [selectedAddressType, setSelectedAddressType] = useState('Home');
+  const [manualAddress, setManualAddress] = useState({ neighborhood: '', street: '', building: '' });
+  const [addressEntryMode, setAddressEntryMode] = useState<'selection' | 'manual'>('selection');
 
   useEffect(() => {
     const registerForPushNotificationsAsync = async () => {
@@ -262,17 +274,27 @@ export default function CustomerScreen() {
   const toggleNotifications = async (value: boolean) => {
     if (Platform.OS === 'web') return;
     if (value) {
-      const { status } = await Notifications.requestPermissionsAsync();
-      setPushEnabled(status === 'granted');
-      if (status !== 'granted') {
-        if (typeof window !== 'undefined' && (window as any).alert) {
-          (window as any).alert('الرجاء تفعيل الإشعارات من إعدادات الجهاز');
-        } else {
-          RNAlert.alert('تنبيه', 'الرجاء تفعيل الإشعارات من إعدادات الجهاز', [{ text: 'حسناً' }]);
+      try {
+        const { status } = await Notifications.requestPermissionsAsync();
+        setPushEnabled(status === 'granted');
+        if (status !== 'granted') {
+          if (typeof window !== 'undefined' && (window as any).alert) {
+            (window as any).alert('الرجاء تفعيل الإشعارات من إعدادات الجهاز');
+          } else {
+            alert('الرجاء تفعيل الإشعارات من إعدادات الجهاز');
+          }
+        } else if (session?.user?.id) {
+          await supabase.from('customers').update({ is_notifications_enabled: true }).eq('id', session.user.id);
         }
+      } catch (e) {
+        setPushEnabled(false);
+        alert('حدث خطأ أثناء طلب صلاحيات الإشعارات');
       }
     } else {
       setPushEnabled(false);
+      if (session?.user?.id) {
+        await supabase.from('customers').update({ is_notifications_enabled: false }).eq('id', session.user.id);
+      }
     }
   };
 
@@ -628,14 +650,15 @@ export default function CustomerScreen() {
       setError(null);
 
       // Fetch restaurant details
-      const { data: restaurantData, error: restaurantError } = await supabase
-        .from('restaurants')
+      const { data: settingsData, error: restaurantError } = await supabase
+        .from('restaurant_settings')
         .select('*')
-        .eq('id', RESTAURANT_ID)
+        .eq('restaurant_id', RESTAURANT_ID)
         .single();
 
       if (restaurantError) throw restaurantError;
-      setRestaurant(restaurantData);
+      console.log("Fetched Settings:", settingsData);
+      setRestaurant(settingsData);
 
       const activeRestaurantId = process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID;
 
@@ -654,12 +677,15 @@ export default function CustomerScreen() {
       try {
         const { data: branchesData, error: branchesError } = await supabase
           .from('restaurant_branches')
-          .select('*');
+          .select('*')
+          .eq('restaurant_id', RESTAURANT_ID);
         
         if (branchesError) throw branchesError;
+        console.log("Fetched Branches:", branchesData);
         if (branchesData && branchesData.length > 0) {
-          setBranches(branchesData);
-          if (!selectedBranch) setSelectedBranch(branchesData[0].name || branchesData[0].id);
+          const uniqueBranches = Array.from(new Map(branchesData.map((item: any) => [item.branch_name, item])).values());
+          setBranches(uniqueBranches);
+          if (!selectedBranch) setSelectedBranch(uniqueBranches[0].branch_name || uniqueBranches[0].id);
         } else {
           setBranches([]);
         }
@@ -2019,22 +2045,14 @@ export default function CustomerScreen() {
 
         <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
 
-          {/* Social Icons (Moved to Top) */}
-          <View style={[styles.socialIcons, { marginTop: 8, marginBottom: 16 }]}>
-            <TouchableOpacity style={styles.socialButton} onPress={() => Linking.openURL('https://tiktok.com')}>
-              <FontAwesome5 name="tiktok" size={24} color={primaryColor} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton} onPress={() => Linking.openURL('https://wa.me/1234567890')}>
-              <FontAwesome5 name="whatsapp" size={24} color={primaryColor} />
-            </TouchableOpacity>
-          </View>
+          {/* Standalone Social Icons removed from More screen */}
 
           {/* Section 1: My Account */}
           {sectionTitle('حسابي', 'My Account')}
           <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
             {renderSettingItem('person-outline', 'الملف الشخصي', 'Profile', () => setIsProfileModalVisible(true))}
             {renderSettingItem('location-outline', 'العناوين المحفوظة', 'Saved Addresses', () => setActiveSection('SavedAddresses'))}
-            {renderSettingItem('notifications-outline', 'الإشعارات', 'Notifications', () => {}, <Switch value={pushEnabled} onValueChange={toggleNotifications} trackColor={{ false: '#E2E8F0', true: primaryColor }} thumbColor="#FFFFFF" />)}
+            {renderSettingItem('notifications-outline', 'الإشعارات', 'Notifications', () => toggleNotifications(!pushEnabled), <Switch value={pushEnabled} onValueChange={toggleNotifications} trackColor={{ false: '#E2E8F0', true: primaryColor }} thumbColor="#FFFFFF" />)}
             {renderSettingItem('wallet-outline', 'المحفظة والرصيد', 'Wallet & Balance', () => {
               if (!session) setShowAuthModal(true);
               else setActiveSection('Wallet');
@@ -2296,6 +2314,77 @@ export default function CustomerScreen() {
     );
   };
 
+  const handleSaveManualAddress = async () => {
+    if (!session?.user?.id) {
+      alert('يجب تسجيل الدخول لحفظ العناوين');
+      return;
+    }
+    try {
+      const fullAddress = `${manualAddress.neighborhood}, ${manualAddress.street}, ${manualAddress.building}`;
+      await supabase.from('user_addresses').insert({
+        user_id: session.user.id,
+        address_type: selectedAddressType,
+        address_text: fullAddress
+      });
+      setIsAddAddressModalVisible(false);
+      setAddressEntryMode('selection');
+      setManualAddress({ neighborhood: '', street: '', building: '' });
+      if (typeof window !== 'undefined' && (window as any).alert) {
+        (window as any).alert('تم حفظ العنوان بنجاح');
+      } else {
+        alert('تم حفظ العنوان بنجاح');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('حدث خطأ أثناء حفظ العنوان');
+    }
+  };
+
+  const renderAddAddressModal = () => (
+    <Modal visible={isAddAddressModalVisible} animationType="slide" transparent={true} onRequestClose={() => setIsAddAddressModalVisible(false)}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+        <View style={{ backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, minHeight: 300 }}>
+          <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <Text style={{ fontSize: 20, fontWeight: 'bold' }}>{getText('إضافة عنوان جديد', 'Add New Address')}</Text>
+            <TouchableOpacity onPress={() => { setIsAddAddressModalVisible(false); setAddressEntryMode('selection'); }}>
+              <Ionicons name="close" size={24} color="#64748B" />
+            </TouchableOpacity>
+          </View>
+          
+          {addressEntryMode === 'selection' ? (
+            <View>
+              <TouchableOpacity 
+                style={{ backgroundColor: primaryColor, padding: 16, borderRadius: 12, flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}
+                onPress={() => { setIsAddAddressModalVisible(false); setShowLocationModal(true); }}
+              >
+                <Ionicons name="map-outline" size={24} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold', marginHorizontal: 12 }}>{getText('تحديد تلقائي عبر الخريطة', 'Auto-locate via Map')}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={{ backgroundColor: '#F1F5F9', padding: 16, borderRadius: 12, flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', justifyContent: 'center' }}
+                onPress={() => setAddressEntryMode('manual')}
+              >
+                <Ionicons name="pencil-outline" size={24} color={primaryColor} />
+                <Text style={{ color: primaryColor, fontSize: 16, fontWeight: 'bold', marginHorizontal: 12 }}>{getText('إدخال يدوي', 'Manual Entry')}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View>
+              <TextInput style={[styles.profileInput, { textAlign: isRTL ? 'right' : 'left', marginBottom: 12 }]} placeholder={getText('الحي', 'Neighborhood')} value={manualAddress.neighborhood} onChangeText={t => setManualAddress({...manualAddress, neighborhood: t})} placeholderTextColor="#94A3B8" />
+              <TextInput style={[styles.profileInput, { textAlign: isRTL ? 'right' : 'left', marginBottom: 12 }]} placeholder={getText('الشارع', 'Street')} value={manualAddress.street} onChangeText={t => setManualAddress({...manualAddress, street: t})} placeholderTextColor="#94A3B8" />
+              <TextInput style={[styles.profileInput, { textAlign: isRTL ? 'right' : 'left', marginBottom: 24 }]} placeholder={getText('المبنى/الشقة', 'Building/Apt')} value={manualAddress.building} onChangeText={t => setManualAddress({...manualAddress, building: t})} placeholderTextColor="#94A3B8" />
+              
+              <TouchableOpacity style={{ backgroundColor: primaryColor, padding: 16, borderRadius: 12, alignItems: 'center' }} onPress={handleSaveManualAddress}>
+                <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold' }}>{getText('حفظ العنوان', 'Save Address')}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+
   const renderMockSectionModal = () => (
     <Modal
       visible={activeSection !== null}
@@ -2323,7 +2412,7 @@ export default function CustomerScreen() {
                   <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, fontWeight: 'bold', textAlign: isRTL ? 'right' : 'left' }}>{getText('المنزل', 'Home')}</Text>
                 </View>
                 <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
-                  <TouchableOpacity style={{ marginTop: 4 }}>
+                  <TouchableOpacity style={{ marginTop: 4 }} onPress={() => { setActiveSection(null); setSelectedAddressType('Home'); setIsAddAddressModalVisible(true); }}>
                     <Text style={{ color: primaryColor, fontWeight: '600', fontSize: 14 }}>+ {getText('إضافة عنوان', 'Add Address')}</Text>
                   </TouchableOpacity>
                 </View>
@@ -2336,7 +2425,7 @@ export default function CustomerScreen() {
                   <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, fontWeight: 'bold', textAlign: isRTL ? 'right' : 'left' }}>{getText('العمل', 'Work')}</Text>
                 </View>
                 <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
-                  <TouchableOpacity style={{ marginTop: 4 }}>
+                  <TouchableOpacity style={{ marginTop: 4 }} onPress={() => { setActiveSection(null); setSelectedAddressType('Work'); setIsAddAddressModalVisible(true); }}>
                     <Text style={{ color: primaryColor, fontWeight: '600', fontSize: 14 }}>+ {getText('إضافة عنوان', 'Add Address')}</Text>
                   </TouchableOpacity>
                 </View>
@@ -2349,7 +2438,7 @@ export default function CustomerScreen() {
                   <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, fontWeight: 'bold', textAlign: isRTL ? 'right' : 'left' }}>{getText('الاستراحة', 'Rest House')}</Text>
                 </View>
                 <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
-                  <TouchableOpacity style={{ marginTop: 4 }}>
+                  <TouchableOpacity style={{ marginTop: 4 }} onPress={() => { setActiveSection(null); setSelectedAddressType('Rest House'); setIsAddAddressModalVisible(true); }}>
                     <Text style={{ color: primaryColor, fontWeight: '600', fontSize: 14 }}>+ {getText('إضافة عنوان', 'Add Address')}</Text>
                   </TouchableOpacity>
                 </View>
@@ -2360,22 +2449,63 @@ export default function CustomerScreen() {
             <View style={{ marginTop: 10 }}>
               <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16, textAlign: isRTL ? 'right' : 'left' }}>{getText('تواصل معنا', 'Contact Us')}</Text>
               
-              {isRestaurantLoading ? (
-                <ActivityIndicator size="small" color={primaryColor} style={{ marginTop: 10 }} />
-              ) : (!restaurantData?.support_phone && !restaurantData?.support_email) ? (
+              {(!branches || branches.length === 0) && !restaurant?.contact_email ? (
                 <View style={{ alignItems: 'center', marginTop: 20 }}>
                   <Ionicons name="information-circle-outline" size={48} color="#9CA3AF" />
-                  <Text style={{ fontSize: 16, color: '#64748B', marginTop: 12 }}>{getText('معلومات التواصل غير متوفرة حالياً', 'Contact info not available currently')}</Text>
+                  <Text style={{ fontSize: 16, color: '#64748B', marginTop: 12 }}>{getText('جاري تحديث بيانات التواصل', 'Contact details are being updated')}</Text>
                 </View>
               ) : (
-                <>
-                  {restaurantData?.support_phone && (
-                    <Text style={{ fontSize: 16, marginBottom: 8, textAlign: isRTL ? 'right' : 'left' }}>📞 {restaurantData.support_phone}</Text>
+                <ScrollView style={{ maxHeight: 350 }}>
+                  {branches && branches.length > 0 && (
+                    Array.from(new Map(branches.map((item: any) => [item.branch_name, item])).values()).map((branch, index) => {
+                      const cleanTiktokHandle = restaurant?.tiktok_handle ? (restaurant.tiktok_handle.startsWith('@') ? restaurant.tiktok_handle.substring(1) : restaurant.tiktok_handle) : '';
+                      return (
+                        <View key={branch.id || index} style={{ padding: 14, backgroundColor: '#F8FAFC', borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                          <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1E293B', textAlign: isRTL ? 'right' : 'left' }}>{branch.branch_name}</Text>
+                          </View>
+                          
+                          <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            {branch.phone_number && (
+                              <TouchableOpacity 
+                                style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', backgroundColor: '#E0F2FE', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
+                                onPress={() => Linking.openURL(`tel:${branch.phone_number}`)}
+                              >
+                                <Ionicons name="call" size={16} color={primaryColor} style={{ marginHorizontal: 4 }} />
+                                <Text style={{ fontSize: 14, color: primaryColor, fontWeight: '600' }}>{branch.phone_number}</Text>
+                              </TouchableOpacity>
+                            )}
+
+                            {restaurant?.is_whatsapp_enabled && branch.whatsapp_number && (
+                              <TouchableOpacity 
+                                style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', backgroundColor: '#DCFCE7', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
+                                onPress={() => Linking.openURL(`https://wa.me/${branch.whatsapp_number}`)}
+                              >
+                                <FontAwesome5 name="whatsapp" size={16} color="#16A34A" style={{ marginHorizontal: 4 }} />
+                                <Text style={{ fontSize: 14, color: '#16A34A', fontWeight: '600' }}>{getText('واتساب', 'WhatsApp')}</Text>
+                              </TouchableOpacity>
+                            )}
+
+                            {restaurant?.is_tiktok_enabled && cleanTiktokHandle && (
+                              <TouchableOpacity 
+                                style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
+                                onPress={() => Linking.openURL(`https://tiktok.com/@${cleanTiktokHandle}`)}
+                              >
+                                <FontAwesome5 name="tiktok" size={16} color="#0F172A" style={{ marginHorizontal: 4 }} />
+                                <Text style={{ fontSize: 14, color: '#0F172A', fontWeight: '600' }}>{getText('تيك توك', 'TikTok')}</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })
                   )}
-                  {restaurantData?.support_email && (
-                    <Text style={{ fontSize: 16, textAlign: isRTL ? 'right' : 'left' }}>✉️ {restaurantData.support_email}</Text>
+                  {restaurant?.contact_email && (
+                    <View style={{ marginTop: 16, padding: 12, backgroundColor: '#F1F5F9', borderRadius: 8, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 16, color: '#475569', fontWeight: 'bold' }}>✉️ {restaurant.contact_email}</Text>
+                    </View>
                   )}
-                </>
+                </ScrollView>
               )}
             </View>
           )}
@@ -2418,7 +2548,7 @@ export default function CustomerScreen() {
         </View>
         <View style={[styles.brandingInfo, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
           <Text style={[styles.brandingTitle, { textAlign: isRTL ? 'right' : 'left' }]}>
-            {restaurant?.name || 'SmartFlow Restaurant'}
+            {restaurant?.restaurant_name || restaurant?.name || restaurantData?.restaurant_name || ''}
           </Text>
           <Text style={[styles.brandingSubtitle, { textAlign: isRTL ? 'right' : 'left' }]}>
             {`⭐ 4.8 • ${getText('مفتوح', 'Open')} • 30 ${getText('دقيقة', 'mins')}`}
@@ -2506,7 +2636,7 @@ export default function CustomerScreen() {
       <View style={styles.splashContainer}>
         <View style={styles.splashContent}>
           <Ionicons name="restaurant" size={80} color={primaryColor} />
-          <Text style={styles.splashText}>SmartFlow</Text>
+          <Text style={styles.splashText}>{restaurant?.restaurant_name || restaurant?.name || restaurantData?.restaurant_name || ''}</Text>
           <ActivityIndicator size="large" color={primaryColor} style={styles.splashLoader} />
         </View>
       </View>
@@ -2865,8 +2995,8 @@ export default function CustomerScreen() {
 
           <ScrollView style={styles.policyModalContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.policyText, { textAlign: 'right', writingDirection: 'rtl' }]}>
-              {getText(`نحن في ${restaurantData?.restaurant_name || 'SmartFlow'} نولي خصوصيتك أهمية بالغة.\n\nجمع البيانات: نقوم بجمع معلوماتك الأساسية (الاسم، رقم الجوال، الموقع الدقيق) لضمان توصيل الطلبات بكفاءة.\n\nاستخدام البيانات: تُستخدم بياناتك حصرياً لتحسين تجربة المستخدم ومعالجة الطلبات داخل منصة SmartFlow متعددة المستأجرين.\n\nحماية البيانات: نلتزم التزاماً تاماً بعدم مشاركة أو بيع بياناتك لأي أطراف ثالثة لأغراض تسويقية.\n\nحذف الحساب: يحق للمستخدم طلب حذف حسابه وبياناته نهائياً في أي وقت من خلال إعدادات الملف الشخصي.`,
-                `At ${restaurantData?.restaurant_name || 'SmartFlow'}, we take your privacy seriously.\n\nData Collection: We collect your basic information (name, phone number, precise location) to ensure efficient order delivery.\n\nData Usage: Your data is used exclusively to improve user experience and process orders within the SmartFlow multi-tenant platform.\n\nData Protection: We are fully committed to not sharing or selling your data to any third parties for marketing purposes.\n\nAccount Deletion: Users have the right to request permanent deletion of their account and data at any time through profile settings.`)}
+              {getText(`نحن في ${restaurant?.restaurant_name || restaurant?.name || 'المطعم'} نولي خصوصيتك أهمية بالغة.\n\nجمع البيانات: نقوم بجمع معلوماتك الأساسية (الاسم، رقم الجوال، الموقع الدقيق) لضمان توصيل الطلبات بكفاءة.\n\nاستخدام البيانات: تُستخدم بياناتك حصرياً لتحسين تجربة المستخدم ومعالجة الطلبات داخل منصة SmartFlow متعددة المستأجرين.\n\nحماية البيانات: نلتزم التزاماً تاماً بعدم مشاركة أو بيع بياناتك لأي أطراف ثالثة لأغراض تسويقية.\n\nحذف الحساب: يحق للمستخدم طلب حذف حسابه وبياناته نهائياً في أي وقت من خلال إعدادات الملف الشخصي.`,
+                `At ${restaurant?.restaurant_name || restaurant?.name || 'Restaurant'}, we take your privacy seriously.\n\nData Collection: We collect your basic information (name, phone number, precise location) to ensure efficient order delivery.\n\nData Usage: Your data is used exclusively to improve user experience and process orders within the SmartFlow multi-tenant platform.\n\nData Protection: We are fully committed to not sharing or selling your data to any third parties for marketing purposes.\n\nAccount Deletion: Users have the right to request permanent deletion of their account and data at any time through profile settings.`)}
             </Text>
           </ScrollView>
         </SafeAreaView>
@@ -2892,8 +3022,8 @@ export default function CustomerScreen() {
 
           <ScrollView style={styles.policyModalContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.policyText, { textAlign: 'right', writingDirection: 'rtl' }]}>
-              {getText(`تطبق هذه الشروط والأحكام على جميع مستخدمي تطبيق ${restaurantData?.restaurant_name || 'المطعم'}.\n\nوصف الخدمة: هذا التطبيق هو منصة تقنية رائدة تقدم خدمات الطلب والتوصيل السريع لمنتجات ${restaurantData?.restaurant_name || 'المطعم'}.\n\nآلية الدفع: تعتمد الخدمة حالياً على خيار (الدفع عند الاستلام) أو (الدفع في الفرع). يلتزم العميل التزاماً كاملاً بدفع قيمة الطلب.\n\nإخلاء المسؤولية: يُرجى التواصل معنا في حال وجود أي ملاحظات، ويقتصر دور منصة SmartFlow التقنية على تسهيل وإدارة عملية الطلب والتوصيل.\n\nنحتفظ بالحق في تحديث أو تعديل هذه الشروط في أي وقت، ويعتبر استمرارك في استخدام التطبيق موافقة صريحة عليها.`,
-                `These terms and conditions apply to all users of the ${restaurantData?.restaurant_name || 'Restaurant'} app.\n\nService Description: This app is a leading technology platform providing ordering and fast delivery services for ${restaurantData?.restaurant_name || 'Restaurant'} products.\n\nPayment Mechanism: The service currently relies on (Cash on Delivery) or (Payment at Branch) options. The customer is fully committed to paying the order value.\n\nDisclaimer: Please contact us for any feedback, and the technical role of the SmartFlow platform is limited to facilitating and managing the ordering and delivery process.\n\nWe reserve the right to update or modify these terms at any time, and continued use of the app is considered explicit acceptance of them.`)}
+              {getText(`تطبق هذه الشروط والأحكام على جميع مستخدمي تطبيق ${restaurant?.restaurant_name || restaurant?.name || 'المطعم'}.\n\nوصف الخدمة: هذا التطبيق هو منصة تقنية رائدة تقدم خدمات الطلب والتوصيل السريع لمنتجات ${restaurant?.restaurant_name || restaurant?.name || 'المطعم'}.\n\nآلية الدفع: تعتمد الخدمة حالياً على خيار (الدفع عند الاستلام) أو (الدفع في الفرع). يلتزم العميل التزاماً كاملاً بدفع قيمة الطلب.\n\nإخلاء المسؤولية: يُرجى التواصل معنا في حال وجود أي ملاحظات، ويقتصر دور منصة SmartFlow التقنية على تسهيل وإدارة عملية الطلب والتوصيل.\n\nنحتفظ بالحق في تحديث أو تعديل هذه الشروط في أي وقت، ويعتبر استمرارك في استخدام التطبيق موافقة صريحة عليها.`,
+                `These terms and conditions apply to all users of the ${restaurant?.restaurant_name || restaurant?.name || 'Restaurant'} app.\n\nService Description: This app is a leading technology platform providing ordering and fast delivery services for ${restaurant?.restaurant_name || restaurant?.name || 'Restaurant'} products.\n\nPayment Mechanism: The service currently relies on (Cash on Delivery) or (Payment at Branch) options. The customer is fully committed to paying the order value.\n\nDisclaimer: Please contact us for any feedback, and the technical role of the SmartFlow platform is limited to facilitating and managing the ordering and delivery process.\n\nWe reserve the right to update or modify these terms at any time, and continued use of the app is considered explicit acceptance of them.`)}
             </Text>
           </ScrollView>
         </SafeAreaView>
@@ -2901,6 +3031,9 @@ export default function CustomerScreen() {
 
       {/* Cart Checkout Modal */}
       {renderCartModal()}
+
+      {/* Add Address Modal */}
+      {renderAddAddressModal()}
 
       {/* Mock Section Modal */}
       {renderMockSectionModal()}

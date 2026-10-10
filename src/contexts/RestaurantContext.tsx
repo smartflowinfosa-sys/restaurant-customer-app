@@ -28,12 +28,13 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { data, error } = await supabase
           .from('restaurant_settings')
           .select('*')
-          .limit(1)
+          .eq('restaurant_id', 'asmak_almohit_001')
           .single();
 
         if (error) {
           console.error('Error fetching restaurant settings:', error);
         } else if (data) {
+          console.log("Fetched Settings:", data);
           setRestaurantData(data);
         }
       } catch (err) {
