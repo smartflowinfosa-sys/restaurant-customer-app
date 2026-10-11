@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 
-export const TENANT_RESTAURANT_ID = 'asmak_almohit_001';
+export const TARGET_RESTAURANT_ID = 'asmak_almohit_001';
+export const TENANT_RESTAURANT_ID = TARGET_RESTAURANT_ID;
 export const DEFAULT_PRIMARY_COLOR = '#00B4D8';
 
 export interface RestaurantSettings {

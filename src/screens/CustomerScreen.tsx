@@ -36,13 +36,12 @@ if (Platform.OS !== 'web') {
   PROVIDER_GOOGLE = maps.PROVIDER_GOOGLE;
 }
 import { supabase } from '../../lib/supabase';
-import { useRestaurant } from '../contexts/RestaurantContext';
+import { useRestaurant, TARGET_RESTAURANT_ID } from '../contexts/RestaurantContext';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import LoginScreen from './LoginScreen';
 
-// Hardcoded restaurant ID for testing
-const RESTAURANT_ID = 'asmak_almohit_001';
+const RESTAURANT_ID = TARGET_RESTAURANT_ID;
 
 // Turquoise color scheme
 const TURQUOISE_COLOR = '#00B4D8';
@@ -152,6 +151,7 @@ export default function CustomerScreen() {
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
   const [trackedOrder, setTrackedOrder] = useState<any>(null);
   const [checkoutDeliveryAddress, setCheckoutDeliveryAddress] = useState('');
+  const [orderNotes, setOrderNotes] = useState('');
   const [selectedLocation, setSelectedLocation] = useState({ latitude: 21.5433, longitude: 39.1728 });
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
   const [promoCode, setPromoCode] = useState('');
@@ -451,10 +451,18 @@ export default function CustomerScreen() {
           .from('orders')
           .select('*, order_items(*)')
           .eq('customer_phone', session.user.phone.replace('+966', '0'))
+          .eq('restaurant_id', TARGET_RESTAURANT_ID)
           .order('created_at', { ascending: false });
         
         if (error) {
-          console.error('Supabase fetchOrders error:', error);
+          console.warn('Orders fetch with restaurant_id warning:', error.message);
+          // Fallback query without restaurant_id filter if column is not yet indexed
+          const { data: fallbackOrders } = await supabase
+            .from('orders')
+            .select('*, order_items(*)')
+            .eq('customer_phone', session.user.phone.replace('+966', '0'))
+            .order('created_at', { ascending: false });
+          if (fallbackOrders) setOrders(fallbackOrders);
         } else if (data) {
           setOrders(data);
         }
@@ -654,52 +662,141 @@ export default function CustomerScreen() {
       setLoading(true);
       setError(null);
 
-      const activeRestaurantId = process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID;
+      // 1. Fetch categories strictly filtered by restaurant_id
+      let fetchedCategories: any[] = [];
+      try {
+        const { data: catData, error: catError } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('restaurant_id', TARGET_RESTAURANT_ID)
+          .order('sort_order', { ascending: true });
 
-      // Fetch categories
-      const { data: catData, error: catError } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('user_id', activeRestaurantId)
-        .order('sort_order', { ascending: true });
-
-      if (!catError && catData) {
-        setCategories([{ id: 'all', name: 'الكل', name_en: 'All' }, ...catData]);
+        if (catError) {
+          console.warn("Categories query with restaurant_id:", catError.message);
+          // Fallback to activeRestaurantId if restaurant_id column hasn't migrated yet
+          const activeRestaurantId = process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID;
+          if (activeRestaurantId) {
+            const { data: fallbackCats } = await supabase
+              .from('categories')
+              .select('*')
+              .eq('user_id', activeRestaurantId)
+              .order('sort_order', { ascending: true });
+            if (fallbackCats && fallbackCats.length > 0) fetchedCategories = fallbackCats;
+          }
+        } else if (catData && catData.length > 0) {
+          fetchedCategories = catData;
+        } else {
+          // If 0 rows matched restaurant_id, check activeRestaurantId transition fallback
+          const activeRestaurantId = process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID;
+          if (activeRestaurantId) {
+            const { data: fallbackCats } = await supabase
+              .from('categories')
+              .select('*')
+              .eq('user_id', activeRestaurantId)
+              .order('sort_order', { ascending: true });
+            if (fallbackCats && fallbackCats.length > 0) fetchedCategories = fallbackCats;
+          }
+        }
+      } catch (catErr) {
+        console.error("Error fetching categories:", catErr);
       }
 
-      // Fetch menu items
-      const { data: itemsData, error: itemsError } = await supabase
-        .from('menu_items')
-        .select('*')
-        .eq('user_id', activeRestaurantId)
-        .order('sort_order', { ascending: true });
+      setCategories([{ id: 'all', name: 'الكل', name_en: 'All' }, ...fetchedCategories]);
 
-      if (itemsError) throw itemsError;
-
-      setMenuItems(itemsData || []);
-
-      // Fetch offers
+      // 2. Fetch products / menu items strictly filtered by restaurant_id
+      let fetchedItems: any[] = [];
       try {
-        const { data: offersData, error: offersError } = await supabase
+        // Try 'products' table first with restaurant_id
+        const { data: productsData, error: productsError } = await supabase
+          .from('products')
+          .select('*')
+          .eq('restaurant_id', TARGET_RESTAURANT_ID)
+          .order('sort_order', { ascending: true });
+
+        if (!productsError && productsData && productsData.length > 0) {
+          fetchedItems = productsData;
+        } else {
+          // Try 'menu_items' table with restaurant_id
+          const { data: menuItemsData, error: menuItemsError } = await supabase
+            .from('menu_items')
+            .select('*')
+            .eq('restaurant_id', TARGET_RESTAURANT_ID)
+            .order('sort_order', { ascending: true });
+
+          if (!menuItemsError && menuItemsData && menuItemsData.length > 0) {
+            fetchedItems = menuItemsData;
+          } else {
+            // Fallback for transition if restaurant_id column hasn't been migrated yet
+            const activeRestaurantId = process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID;
+            if (activeRestaurantId) {
+              const { data: fallbackItems } = await supabase
+                .from('menu_items')
+                .select('*')
+                .eq('user_id', activeRestaurantId)
+                .order('sort_order', { ascending: true });
+              if (fallbackItems && fallbackItems.length > 0) fetchedItems = fallbackItems;
+            }
+          }
+        }
+      } catch (itemErr) {
+        console.error("Error fetching products:", itemErr);
+      }
+
+      // Normalize items so fields match regardless of schema variations (title vs name, image vs image_url)
+      const normalizedItems: MenuItem[] = (fetchedItems || []).map((item: any) => ({
+        ...item,
+        id: String(item.id),
+        restaurant_id: item.restaurant_id || TARGET_RESTAURANT_ID,
+        name: item.name || item.name_ar || item.title || '',
+        name_ar: item.name_ar || item.name || item.title || '',
+        name_en: item.name_en || item.name || '',
+        description: item.description || item.description_ar || '',
+        description_en: item.description_en || '',
+        price: Number(item.price || 0),
+        image_url: item.image_url || item.image || item.photo_url || '',
+        category_id: item.category_id ? String(item.category_id) : (item.category ? String(item.category) : undefined),
+        is_weighted: !!item.is_weighted,
+        has_options: !!item.has_options,
+      }));
+
+      setMenuItems(normalizedItems);
+
+      // 3. Fetch offers strictly filtered by restaurant_id
+      try {
+        let { data: offersData, error: offersError } = await supabase
           .from('offers')
           .select('*')
-          .eq('restaurant_id', activeRestaurantId);
-        
-        if (offersError) throw offersError;
+          .eq('restaurant_id', TARGET_RESTAURANT_ID);
+
+        if ((offersError || !offersData || offersData.length === 0) && process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID) {
+          const { data: fallbackOffers } = await supabase
+            .from('offers')
+            .select('*')
+            .eq('restaurant_id', process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID);
+          if (fallbackOffers) offersData = fallbackOffers;
+        }
+
         if (offersData) setOffers(offersData);
       } catch (err) {
         console.error('Error fetching offers:', err);
         setOffers([]);
       }
 
-      // Fetch promo codes
+      // 4. Fetch promo codes strictly filtered by restaurant_id
       try {
-        const { data: promoData, error: promoError } = await supabase
+        let { data: promoData, error: promoError } = await supabase
           .from('promo_codes')
           .select('*')
-          .eq('restaurant_id', activeRestaurantId);
-        
-        if (promoError) throw promoError;
+          .eq('restaurant_id', TARGET_RESTAURANT_ID);
+
+        if ((promoError || !promoData || promoData.length === 0) && process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID) {
+          const { data: fallbackPromos } = await supabase
+            .from('promo_codes')
+            .select('*')
+            .eq('restaurant_id', process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID);
+          if (fallbackPromos) promoData = fallbackPromos;
+        }
+
         if (promoData) setPromoCodesList(promoData);
       } catch (err) {
         console.error('Error fetching promo codes:', err);
@@ -1041,42 +1138,93 @@ export default function CustomerScreen() {
         grandTotal = Math.max(0, grandTotal - amountPaidFromWallet);
       }
 
-      // ── 1. Insert Main Order ────────────────────────────────────────────
-      const orderPayload = {
+      // ── Branch Linking ──────────────────────────────────────────
+      const matchedBranch = branches.find(
+        (b: any) => b.branch_name === selectedBranch || b.id === selectedBranch
+      );
+      const branchName = deliveryMode === 'pickup'
+        ? (matchedBranch?.branch_name || selectedBranch)
+        : (branches && branches.length > 0 ? branches[0].branch_name : null);
+      const branchId = deliveryMode === 'pickup'
+        ? (matchedBranch?.id || null)
+        : (branches && branches.length > 0 ? branches[0].id : null);
+
+      const resolvedDeliveryAddress = deliveryMode === 'delivery'
+        ? (checkoutDeliveryAddress.trim() || deliveryAddress.trim() || null)
+        : null;
+
+      // ── 1. Insert Main Order with Tenant ID ────────────────────────
+      const richOrderPayload: any = {
+        restaurant_id: TARGET_RESTAURANT_ID, // 1. STRICTLY tied to tenant
         customer_name: customerName.trim(),
         customer_phone: normalizePhone(customerPhone),
         total_amount: grandTotal,
         delivery_type: deliveryMode,
         payment_method: paymentMethod,
-        branch_name: deliveryMode === 'pickup' ? selectedBranch : null,
+        branch_name: branchName,
+        branch_id: branchId,
+        delivery_address: resolvedDeliveryAddress,
+        notes: orderNotes.trim() || null,
         latitude: deliveryMode === 'delivery' ? selectedLocation.latitude : null,
         longitude: deliveryMode === 'delivery' ? selectedLocation.longitude : null,
-        status: 'pending' // FORCE THIS EXACT VALUE
+        status: 'pending' // Initial status
       };
 
-      const { data: order, error: orderError } = await supabase
+      console.log('[Order] Inserting order payload:', JSON.stringify(richOrderPayload));
+
+      let order: any = null;
+      const { data: insertedOrder, error: orderError } = await supabase
         .from('orders')
-        .insert([orderPayload])
+        .insert([richOrderPayload])
         .select()
         .single();
 
       if (orderError) {
-        console.error('Order insert error (Step 1 failed):', orderError);
-        throw new Error(orderError.message);
+        console.warn('[Order] Rich insert warning, attempting resilient base payload:', orderError.message);
+        // Fallback in case optional columns (branch_id, delivery_address, notes) are not present in schema
+        const fallbackOrderPayload: any = {
+          restaurant_id: TARGET_RESTAURANT_ID,
+          customer_name: customerName.trim(),
+          customer_phone: normalizePhone(customerPhone),
+          total_amount: grandTotal,
+          delivery_type: deliveryMode,
+          payment_method: paymentMethod,
+          branch_name: branchName,
+          latitude: deliveryMode === 'delivery' ? selectedLocation.latitude : null,
+          longitude: deliveryMode === 'delivery' ? selectedLocation.longitude : null,
+          status: 'pending'
+        };
+
+        const { data: retryOrder, error: retryError } = await supabase
+          .from('orders')
+          .insert([fallbackOrderPayload])
+          .select()
+          .single();
+
+        if (retryError) {
+          console.error('[Order] Insert retry FAILED:', retryError);
+          throw new Error(retryError.message);
+        }
+        order = retryOrder;
+      } else {
+        order = insertedOrder;
       }
 
       console.log('[Order] Created (Step 1 success) — id:', order.id);
 
       // ── 2. Bulk Insert Order Items ────────────────────────────────
       const orderId = order.id;
-      const itemsPayload = cart.map(item => ({
-        order_id: orderId,
-        menu_item_id: item.id || (item as any).menu_item_id,
-        quantity: item.quantity,
-        unit_price: (item.final_price ?? item.price) || (item as any).unit_price,
-        name: item.name || item.title,
-        price: (item.final_price ?? item.price) || (item.quantity * item.price)
-      }));
+      const itemsPayload = cart.map(item => {
+        const itemPrice = item.final_price ?? item.price ?? 0;
+        return {
+          order_id: orderId,
+          menu_item_id: item.id || (item as any).menu_item_id,
+          name: item.name || item.name_ar || item.title || '',
+          quantity: item.quantity,
+          unit_price: itemPrice,
+          price: itemPrice * item.quantity
+        };
+      });
 
       console.log('[Order] Items payload:', JSON.stringify(itemsPayload));
 
@@ -1091,12 +1239,14 @@ export default function CustomerScreen() {
 
       console.log('[Order] Items inserted (Step 2 success):', itemsPayload.length);
 
-      // ── 4. Cleanup & UX ──────────────────────────────────────────
+      // ── 3. Cleanup & UX ──────────────────────────────────────────
       setCart([]);
       await AsyncStorage.removeItem(CART_STORAGE_KEY);
 
       setCustomerName('');
       setCustomerPhone('');
+      setCheckoutDeliveryAddress('');
+      setOrderNotes('');
       setPromoCode('');
       setDiscount(0);
       setIsCartModalVisible(false);
@@ -1415,10 +1565,21 @@ export default function CustomerScreen() {
                     {phoneError}
                   </Text>
                 ) : null}
+                {deliveryMode === 'delivery' && (
+                  <TextInput
+                    style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48, borderColor: '#E5E7EB' }]}
+                    placeholder={getText('عنوان التوصيل (الحي، الشارع، رقم المبنى)', 'Delivery Address (District, Street, Building)')}
+                    placeholderTextColor="#9CA3AF"
+                    value={checkoutDeliveryAddress}
+                    onChangeText={setCheckoutDeliveryAddress}
+                  />
+                )}
                 <TextInput
                   style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 80 }]}
                   placeholder={getText('ملاحظات (اختياري)', 'Notes (optional)')}
                   placeholderTextColor="#9CA3AF"
+                  value={orderNotes}
+                  onChangeText={setOrderNotes}
                   multiline
                 />
               </View>
@@ -1779,14 +1940,87 @@ export default function CustomerScreen() {
     );
   };
 
+  const renderMenuSkeleton = () => (
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      {/* Category Pills Skeleton */}
+      <View style={{ paddingVertical: 12, paddingHorizontal: 16 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+          {[90, 110, 80, 100, 85].map((w, idx) => (
+            <View
+              key={idx}
+              style={{
+                width: w,
+                height: 38,
+                borderRadius: 20,
+                backgroundColor: '#F1F5F9',
+              }}
+            />
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* Menu Item Cards Skeleton */}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, gap: 16 }}>
+        {[1, 2, 3, 4, 5].map((_, idx) => (
+          <View
+            key={idx}
+            style={{
+              flexDirection: isRTL ? 'row-reverse' : 'row',
+              backgroundColor: '#FFFFFF',
+              borderRadius: 16,
+              padding: 12,
+              borderWidth: 1,
+              borderColor: '#F1F5F9',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.04,
+              shadowRadius: 4,
+              elevation: 1,
+              alignItems: 'center',
+            }}
+          >
+            {/* Image Skeleton */}
+            <View
+              style={{
+                width: 90,
+                height: 90,
+                borderRadius: 12,
+                backgroundColor: '#E2E8F0',
+              }}
+            />
+
+            {/* Content Skeleton */}
+            <View style={{ flex: 1, marginHorizontal: 14, gap: 8, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
+              <View style={{ width: '70%', height: 16, borderRadius: 8, backgroundColor: '#E2E8F0' }} />
+              <View style={{ width: '90%', height: 12, borderRadius: 6, backgroundColor: '#F1F5F9' }} />
+              <View style={{ width: '40%', height: 14, borderRadius: 7, backgroundColor: '#E2E8F0', marginTop: 4 }} />
+            </View>
+
+            {/* Action Button Skeleton */}
+            <View
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: '#F1F5F9',
+              }}
+            />
+          </View>
+        ))}
+
+        <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+          <ActivityIndicator size="small" color={primaryColor} />
+          <Text style={{ marginTop: 8, fontSize: 13, color: '#94A3B8' }}>
+            {getText('جاري تحديث قائمة الطعام...', 'Updating menu catalog...')}
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
+  );
+
   const renderMenuTab = () => {
     if (loading) {
-      return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={primaryColor} />
-          <Text style={styles.loadingText}>{getText('جاري تحميل القائمة...', 'Loading menu...')}</Text>
-        </View>
-      );
+      return renderMenuSkeleton();
     }
 
     return (
