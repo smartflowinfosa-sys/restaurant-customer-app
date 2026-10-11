@@ -1879,7 +1879,7 @@ export default function CustomerScreen() {
   };
 
   const renderSuccessModal = () => {
-    const displayOrderId = successOrderNumber ? `${deliveryMode === 'delivery' ? 'D' : 'P'}${successOrderNumber}` : '';
+    const displayOrderId = successOrderNumber || '';
     return (
       <Modal
         visible={successOrderNumber !== null}
@@ -2179,17 +2179,20 @@ export default function CustomerScreen() {
             {getText('لا توجد طلبات سابقة', 'No previous orders found')}
           </Text>
         ) : (
-          orders.map((order, index) => (
-            <View key={index} style={styles.orderCard}>
-              <View style={[styles.orderHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-                <Text style={styles.orderNumber}>{getText(`طلب #${order.id.slice(0, 6)}`, `Order #${order.id.slice(0, 6)}`)} {order.restaurant_branches ? `(${order.restaurant_branches.name})` : ''}</Text>
-                <Text style={[styles.orderStatus, { color: order.status === 'delivered' ? '#10B981' : primaryColor }]}>{order.status}</Text>
+          orders.map((order, index) => {
+            const orderDisplayNum = order.display_id || `#${order.id.slice(0, 6)}`;
+            return (
+              <View key={index} style={styles.orderCard}>
+                <View style={[styles.orderHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                  <Text style={styles.orderNumber}>{getText(`طلب ${orderDisplayNum}`, `Order ${orderDisplayNum}`)} {order.restaurant_branches ? `(${order.restaurant_branches.name})` : ''}</Text>
+                  <Text style={[styles.orderStatus, { color: order.status === 'delivered' ? '#10B981' : primaryColor }]}>{order.status}</Text>
+                </View>
+                <Text style={[styles.orderDate, { textAlign: isRTL ? 'right' : 'left' }]}>{new Date(order.created_at).toLocaleDateString(isRTL ? 'ar-SA' : 'en-US')}</Text>
+                <Text style={[styles.orderItems, { textAlign: isRTL ? 'right' : 'left' }]}>{order.order_items?.map((item: any) => item.name).join('، ') || 'عناصر الطلب'}</Text>
+                <Text style={[styles.orderTotal, { textAlign: isRTL ? 'right' : 'left' }]}>{getText(`الإجمالي: ${order.total_amount} ر.س`, `Total: ${order.total_amount} SAR`)}</Text>
               </View>
-              <Text style={[styles.orderDate, { textAlign: isRTL ? 'right' : 'left' }]}>{new Date(order.created_at).toLocaleDateString(isRTL ? 'ar-SA' : 'en-US')}</Text>
-              <Text style={[styles.orderItems, { textAlign: isRTL ? 'right' : 'left' }]}>{order.order_items?.map((item: any) => item.name).join('، ') || 'عناصر الطلب'}</Text>
-              <Text style={[styles.orderTotal, { textAlign: isRTL ? 'right' : 'left' }]}>{getText(`الإجمالي: ${order.total_amount} ر.س`, `Total: ${order.total_amount} SAR`)}</Text>
-            </View>
-          ))
+            );
+          })
         )}
       </ScrollView>
       )}
