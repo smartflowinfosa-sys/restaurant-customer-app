@@ -109,14 +109,13 @@ interface Region {
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function CustomerScreen() {
-  const { restaurantData, isLoading: isRestaurantLoading } = useRestaurant();
+  const {
+    restaurant,
+    branches,
+    primaryColor: contextPrimaryColor,
+    isLoading: isRestaurantLoading,
+  } = useRestaurant();
   // ALL HOOKS MUST BE DECLARED FIRST - Strict Rules of Hooks
-  const [restaurant, setRestaurant] = useState<Restaurant | null>({
-    id: RESTAURANT_ID,
-    name: restaurantData?.restaurant_name || '',
-    restaurant_name: restaurantData?.restaurant_name || '',
-    primary_color: TURQUOISE_COLOR,
-  });
   const [categories, setCategories] = useState<Category[]>([{ id: 'all', name: 'الكل' }]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -132,7 +131,6 @@ export default function CustomerScreen() {
   const [offersSection, setOffersSection] = useState('offers');
   const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('pickup');
   const [selectedBranch, setSelectedBranch] = useState('');
-  const [branches, setBranches] = useState<any[]>([]);
   const [language, setLanguage] = useState<'ar' | 'en'>('ar');
   const [userLocation, setUserLocation] = useState(DEFAULT_COORDS);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -180,10 +178,17 @@ export default function CustomerScreen() {
   const hasRequestedPermissions = useRef(false);
   const insets = useSafeAreaInsets();
 
-  const primaryColor = TURQUOISE_COLOR;
+  const primaryColor = contextPrimaryColor || TURQUOISE_COLOR;
   const isRTL = language === 'ar';
 
   const CART_STORAGE_KEY = '@restaurant_cart';
+
+  // Automatically select first branch once tenant branches load from context
+  useEffect(() => {
+    if (branches && branches.length > 0 && !selectedBranch) {
+      setSelectedBranch(branches[0].branch_name || branches[0].id);
+    }
+  }, [branches, selectedBranch]);
 
   // ALL USEEFFECT HOOKS MUST BE DECLARED BEFORE ANY CONDITIONAL RETURNS
 
@@ -649,17 +654,6 @@ export default function CustomerScreen() {
       setLoading(true);
       setError(null);
 
-      // Fetch restaurant details
-      const { data: settingsData, error: restaurantError } = await supabase
-        .from('restaurant_settings')
-        .select('*')
-        .eq('restaurant_id', RESTAURANT_ID)
-        .single();
-
-      if (restaurantError) throw restaurantError;
-      console.log("Fetched Settings:", settingsData);
-      setRestaurant(settingsData);
-
       const activeRestaurantId = process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID;
 
       // Fetch categories
@@ -671,27 +665,6 @@ export default function CustomerScreen() {
 
       if (!catError && catData) {
         setCategories([{ id: 'all', name: 'الكل', name_en: 'All' }, ...catData]);
-      }
-
-      // Fetch branches
-      try {
-        const { data: branchesData, error: branchesError } = await supabase
-          .from('restaurant_branches')
-          .select('*')
-          .eq('restaurant_id', RESTAURANT_ID);
-        
-        if (branchesError) throw branchesError;
-        console.log("Fetched Branches:", branchesData);
-        if (branchesData && branchesData.length > 0) {
-          const uniqueBranches = Array.from(new Map(branchesData.map((item: any) => [item.branch_name, item])).values());
-          setBranches(uniqueBranches);
-          if (!selectedBranch) setSelectedBranch(uniqueBranches[0].branch_name || uniqueBranches[0].id);
-        } else {
-          setBranches([]);
-        }
-      } catch (err) {
-        console.error('Error fetching branches:', err);
-        setBranches([]);
       }
 
       // Fetch menu items
@@ -1145,8 +1118,8 @@ export default function CustomerScreen() {
     if (useWalletBalance && walletBalance > 0) {
       total = Math.max(0, total - walletBalance);
     }
-    const cashbackPercentage = restaurantData?.cashback_percentage || 5;
-    const minOrderValue = restaurantData?.min_order_value || 100;
+    const cashbackPercentage = restaurant?.cashback_percentage || 5;
+    const minOrderValue = restaurant?.min_order_value || 100;
     const potentialCashback = subtotal * (cashbackPercentage / 100);
     const amountToMinOrder = Math.max(0, minOrderValue - subtotal);
 
@@ -1368,38 +1341,48 @@ export default function CustomerScreen() {
                     {getText('اختر الفرع', 'Select Branch')}
                   </Text>
                   
-                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 12 }}>
-                    {['فرع الصفا', 'فرع النسيم'].map((branch) => {
-                      const isSelected = selectedBranch === branch;
-                      return (
-                        <TouchableOpacity
-                          key={branch}
-                          onPress={() => setSelectedBranch(branch)}
-                          style={[{
-                            flex: 1,
-                            flexDirection: isRTL ? 'row-reverse' : 'row',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            paddingVertical: 14,
-                            paddingHorizontal: 12,
-                            borderRadius: 12,
-                            borderWidth: 1.5,
-                            gap: 8,
-                          }, isSelected
-                            ? { borderColor: primaryColor, backgroundColor: '#EEF2FF' }
-                            : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
-                        >
-                          <Ionicons
-                            name={isSelected ? 'radio-button-on' : 'radio-button-off'}
-                            size={20}
-                            color={isSelected ? primaryColor : '#9CA3AF'}
-                          />
-                          <Text style={{ fontSize: 14, color: isSelected ? primaryColor : '#374151', fontWeight: isSelected ? '600' : '400' }}>
-                            {branch}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 12, flexWrap: 'wrap' }}>
+                    {branches && branches.length > 0 ? (
+                      branches.map((branchObj: any) => {
+                        const branchName = branchObj.branch_name || branchObj.name;
+                        const isSelected = selectedBranch === branchName;
+                        return (
+                          <TouchableOpacity
+                            key={branchObj.id || branchName}
+                            onPress={() => setSelectedBranch(branchName)}
+                            style={[{
+                              flex: branches.length <= 2 ? 1 : undefined,
+                              minWidth: '45%',
+                              flexDirection: isRTL ? 'row-reverse' : 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              paddingVertical: 14,
+                              paddingHorizontal: 12,
+                              borderRadius: 12,
+                              borderWidth: 1.5,
+                              gap: 8,
+                            }, isSelected
+                              ? { borderColor: primaryColor, backgroundColor: '#EEF2FF' }
+                              : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
+                          >
+                            <Ionicons
+                              name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                              size={20}
+                              color={isSelected ? primaryColor : '#9CA3AF'}
+                            />
+                            <Text style={{ fontSize: 14, color: isSelected ? primaryColor : '#374151', fontWeight: isSelected ? '600' : '400' }}>
+                              {branchName}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })
+                    ) : (
+                      <View style={{ padding: 12, backgroundColor: '#F8FAFC', borderRadius: 8, width: '100%', alignItems: 'center' }}>
+                        <Text style={{ color: '#94A3B8', fontSize: 13 }}>
+                          {getText('جاري تحميل الفروع...', 'Loading branches...')}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
               )}
@@ -2045,7 +2028,44 @@ export default function CustomerScreen() {
 
         <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
 
-          {/* Standalone Social Icons removed from More screen */}
+          {/* Tenant Identity Header (Drawer/Sidebar dynamic branding) */}
+          <View style={{
+            marginHorizontal: 16,
+            marginTop: 8,
+            marginBottom: 16,
+            padding: 16,
+            backgroundColor: '#FFFFFF',
+            borderRadius: 16,
+            flexDirection: isRTL ? 'row-reverse' : 'row',
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: '#F1F5F9',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.03,
+            shadowRadius: 8,
+            elevation: 2,
+          }}>
+            <View style={{ width: 48, height: 48, borderRadius: 24, overflow: 'hidden', backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' }}>
+              <Image
+                source={restaurant?.logo_url ? { uri: restaurant.logo_url } : require('../../assets/store-logo.jpeg')}
+                style={{ width: 48, height: 48, borderRadius: 24 }}
+              />
+            </View>
+            <View style={{ flex: 1, marginHorizontal: 12, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
+              <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1E293B', textAlign: isRTL ? 'right' : 'left' }}>
+                {restaurant?.restaurant_name || restaurant?.name || 'مطعم'}
+              </Text>
+              <Text style={{ fontSize: 13, color: '#64748B', marginTop: 2, textAlign: isRTL ? 'right' : 'left' }}>
+                {getText('تطبيق العميل المعتمد', 'Official Customer App')}
+              </Text>
+            </View>
+            <View style={{ backgroundColor: '#EEF2FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: primaryColor }}>
+                {getText('نشط', 'Active')}
+              </Text>
+            </View>
+          </View>
 
           {/* Section 1: My Account */}
           {sectionTitle('حسابي', 'My Account')}
@@ -2544,11 +2564,14 @@ export default function CustomerScreen() {
       {/* Restaurant Branding Header */}
       <View style={[styles.brandingHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
         <View style={[styles.brandingLogoPlaceholder, { overflow: 'hidden', padding: 0, justifyContent: 'center', alignItems: 'center' }]}>
-          <Image source={require('../../assets/store-logo.jpeg')} style={{ width: 50, height: 50, borderRadius: 25 }} />
+          <Image
+            source={restaurant?.logo_url ? { uri: restaurant.logo_url } : require('../../assets/store-logo.jpeg')}
+            style={{ width: 50, height: 50, borderRadius: 25 }}
+          />
         </View>
         <View style={[styles.brandingInfo, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
           <Text style={[styles.brandingTitle, { textAlign: isRTL ? 'right' : 'left' }]}>
-            {restaurant?.restaurant_name || restaurant?.name || restaurantData?.restaurant_name || ''}
+            {restaurant?.restaurant_name || restaurant?.name || 'مطعم'}
           </Text>
           <Text style={[styles.brandingSubtitle, { textAlign: isRTL ? 'right' : 'left' }]}>
             {`⭐ 4.8 • ${getText('مفتوح', 'Open')} • 30 ${getText('دقيقة', 'mins')}`}
@@ -2636,7 +2659,7 @@ export default function CustomerScreen() {
       <View style={styles.splashContainer}>
         <View style={styles.splashContent}>
           <Ionicons name="restaurant" size={80} color={primaryColor} />
-          <Text style={styles.splashText}>{restaurant?.restaurant_name || restaurant?.name || restaurantData?.restaurant_name || ''}</Text>
+          <Text style={styles.splashText}>{restaurant?.restaurant_name || restaurant?.name || 'مطعم'}</Text>
           <ActivityIndicator size="large" color={primaryColor} style={styles.splashLoader} />
         </View>
       </View>

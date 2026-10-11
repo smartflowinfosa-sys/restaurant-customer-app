@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import { useRestaurant } from '../contexts/RestaurantContext';
 
 interface LoginScreenProps {
   onLoginSuccess?: (mockSession?: any) => void;
@@ -20,6 +21,7 @@ interface LoginScreenProps {
 }
 
 export default function LoginScreen({ onLoginSuccess, initialPhone = '', initialName = '' }: LoginScreenProps) {
+  const { restaurant, primaryColor } = useRestaurant();
   const [step, setStep] = useState<1 | 2>(1);
   const [name, setName] = useState(initialName);
   const [phone, setPhone] = useState(initialPhone);
@@ -160,9 +162,11 @@ export default function LoginScreen({ onLoginSuccess, initialPhone = '', initial
     >
       <View style={styles.card}>
         <View style={styles.header}>
-          <Ionicons name="shield-checkmark" size={60} color="#00B4D8" />
+          <Ionicons name="shield-checkmark" size={60} color={primaryColor || "#00B4D8"} />
           <Text style={styles.title}>
-            {step === 1 ? 'تسجيل الدخول' : 'رمز التحقق'}
+            {step === 1
+              ? (restaurant?.restaurant_name ? `تسجيل الدخول - ${restaurant.restaurant_name}` : 'تسجيل الدخول')
+              : 'رمز التحقق'}
           </Text>
           <Text style={styles.subtitle}>
             {step === 1 
@@ -216,7 +220,7 @@ export default function LoginScreen({ onLoginSuccess, initialPhone = '', initial
             {errors.phone && <Text style={styles.inlineError}>{errors.phone}</Text>}
 
             <TouchableOpacity 
-              style={[styles.button, isLoading && styles.buttonDisabled]} 
+              style={[styles.button, { backgroundColor: primaryColor }, isLoading && styles.buttonDisabled]} 
               onPress={handleSendOTP}
               disabled={isLoading}
             >
@@ -244,7 +248,7 @@ export default function LoginScreen({ onLoginSuccess, initialPhone = '', initial
               textAlign="center"
             />
             <TouchableOpacity 
-              style={[styles.button, isLoading && styles.buttonDisabled]} 
+              style={[styles.button, { backgroundColor: primaryColor }, isLoading && styles.buttonDisabled]} 
               onPress={handleVerifyOtp}
               disabled={isLoading}
             >
