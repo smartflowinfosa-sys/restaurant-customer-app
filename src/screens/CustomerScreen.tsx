@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import {
   StyleSheet,
@@ -85,9 +85,13 @@ interface MenuItem {
   description: string;
   description_en?: string;
   price: number;
+  original_price?: number;
+  discount_percentage?: number;
   category?: string;
   category_id?: string;
   image_url: string;
+  is_weighted?: boolean;
+  has_options?: boolean;
 }
 
 interface CartItem extends MenuItem {
@@ -98,6 +102,162 @@ interface CartItem extends MenuItem {
   final_price?: number;
   notes?: string;
 }
+
+export interface Promotion {
+  id: string;
+  restaurant_id?: string;
+  name?: string;
+  discount_percentage: number;
+  target_branches?: any;
+  selected_branches?: any;
+  selected_items: any;
+  target_audience?: string;
+  order_type?: string;
+  start_date?: string;
+  end_date?: string | null;
+  is_active: boolean;
+  created_at?: string;
+}
+
+export const isPromotionActive = (promo: any): boolean => {
+  if (!promo || promo.is_active === false) return false;
+
+  const now = new Date();
+
+  if (promo.start_date) {
+    const start = new Date(promo.start_date);
+    if (!isNaN(start.getTime()) && now < start) {
+      return false;
+    }
+  }
+
+  if (promo.end_date) {
+    const endStr = String(promo.end_date).trim();
+    let end: Date;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(endStr)) {
+      end = new Date(`${endStr}T23:59:59.999`);
+    } else {
+      end = new Date(promo.end_date);
+    }
+    if (!isNaN(end.getTime()) && now > end) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+export const matchesBranch = (promo: any, branchValue: string, branchList: any[]): boolean => {
+  const promoBranches = promo.target_branches || promo.selected_branches || promo.branches || promo.branch_ids || promo.branch_id;
+  if (!promoBranches) return true;
+
+  let branchArr: any[] = [];
+  if (Array.isArray(promoBranches)) {
+    branchArr = promoBranches;
+  } else if (typeof promoBranches === 'string') {
+    try {
+      const parsed = JSON.parse(promoBranches);
+      if (Array.isArray(parsed)) branchArr = parsed;
+      else branchArr = [promoBranches];
+    } catch {
+      branchArr = promoBranches.split(',').map((s: string) => s.trim());
+    }
+  } else {
+    branchArr = [promoBranches];
+  }
+
+  if (branchArr.length === 0 || branchArr.some((b: any) => String(b).toLowerCase() === 'all' || String(b) === 'الكل')) {
+    return true;
+  }
+
+  if (!branchValue) return true;
+
+  const currentBranch = branchList?.find((b: any) =>
+    b.branch_name === branchValue || b.name === branchValue || b.id === branchValue || String(b.id) === String(branchValue)
+  );
+  const currentId = currentBranch?.id ? String(currentBranch.id).trim() : null;
+  const currentName = currentBranch?.branch_name || currentBranch?.name || branchValue;
+
+  return branchArr.some((b: any) => {
+    const val = typeof b === 'object' && b !== null ? String(b.id || b.name || b.branch_name).trim() : String(b).trim();
+    if (val === 'all' || val.toLowerCase() === 'all' || val === 'الكل') return true;
+    if (currentId && val === currentId) return true;
+    if (currentName && val.toLowerCase() === String(currentName).toLowerCase()) return true;
+    if (val.toLowerCase() === String(branchValue).toLowerCase()) return true;
+    return false;
+  });
+};
+
+export const matchesOrderType = (promo: any, currentMode: 'delivery' | 'pickup'): boolean => {
+  const promoType = promo.order_type || promo.orderType || promo.fulfillment_type;
+  if (!promoType) return true;
+  const str = String(promoType).trim().toLowerCase();
+  if (str === 'all' || str === 'الكل' || str === '') return true;
+  if (currentMode === 'delivery') {
+    return str === 'delivery' || str === 'توصيل';
+  }
+  if (currentMode === 'pickup') {
+    return str === 'pickup' || str === 'takeaway' || str === 'استلام';
+  }
+  return true;
+};
+
+export const isItemInPromotion = (promo: any, itemId: string | number): boolean => {
+  if (!promo || !itemId) return false;
+  let items = promo.selected_items || promo.items || promo.menu_items;
+
+  if (typeof items === 'string') {
+    try {
+      items = JSON.parse(items);
+    } catch {
+      items = items.split(',').map((s: string) => s.trim());
+    }
+  }
+
+  if (!Array.isArray(items)) {
+    return false;
+  }
+
+  const targetId = String(itemId).trim();
+  return items.some((item: any) => {
+    if (typeof item === 'object' && item !== null) {
+      return String(item.id || item.menu_item_id || item.item_id).trim() === targetId;
+    }
+    return String(item).trim() === targetId;
+  });
+};
+
+export const getActivePromotionForItem = (
+  itemId: string | number,
+  promotionsList: Promotion[],
+  selectedBranch: string,
+  branchList: any[],
+  deliveryMode: 'delivery' | 'pickup'
+): Promotion | null => {
+  if (!itemId || !promotionsList || promotionsList.length === 0) return null;
+
+  const validPromos = promotionsList.filter(promo => {
+    return (
+      isPromotionActive(promo) &&
+      matchesBranch(promo, selectedBranch, branchList) &&
+      matchesOrderType(promo, deliveryMode) &&
+      isItemInPromotion(promo, itemId)
+    );
+  });
+
+  if (validPromos.length === 0) return null;
+
+  return validPromos.reduce((best, curr) => {
+    const bestPct = Number(best.discount_percentage || 0);
+    const currPct = Number(curr.discount_percentage || 0);
+    return currPct > bestPct ? curr : best;
+  });
+};
+
+export const calculateDiscountedPrice = (originalPrice: number, discountPercentage: number): number => {
+  const pct = Math.max(0, Math.min(100, Number(discountPercentage) || 0));
+  return Math.max(0, Math.round((originalPrice * (1 - pct / 100)) * 100) / 100);
+};
 
 interface Region {
   latitude: number;
@@ -127,6 +287,7 @@ export default function CustomerScreen() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [offers, setOffers] = useState<any[]>([]);
   const [promoCodesList, setPromoCodesList] = useState<any[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [activeTab, setActiveTab] = useState('menu');
   const [offersSection, setOffersSection] = useState('offers');
   const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('pickup');
@@ -1105,6 +1266,32 @@ export default function CustomerScreen() {
         setPromoCodesList([]);
       }
 
+      // 5. Fetch central active promotions
+      try {
+        let { data: promoList, error: promoListError } = await supabase
+          .from('promotions')
+          .select('*')
+          .eq('is_active', true);
+
+        if (promoListError) {
+          console.warn('[Promotions] Query with is_active:', promoListError.message);
+        }
+
+        if (promoList && promoList.length > 0) {
+          const tenantPromos = promoList.filter((p: any) =>
+            !p.restaurant_id ||
+            p.restaurant_id === TARGET_RESTAURANT_ID ||
+            (process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID && p.restaurant_id === process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID)
+          );
+          setPromotions(tenantPromos.length > 0 ? tenantPromos : promoList);
+        } else {
+          setPromotions([]);
+        }
+      } catch (err) {
+        console.warn('Error fetching promotions:', err);
+        setPromotions([]);
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
       console.error('Error fetching data:', err);
@@ -1213,8 +1400,47 @@ export default function CustomerScreen() {
     return item?.quantity || 0;
   };
 
+  const getCartItemUnitPrice = useCallback((item: CartItem): number => {
+    const activePromo = getActivePromotionForItem(item.id, promotions, selectedBranch, branches, deliveryMode);
+    const rawBase = Number(item.original_price ?? item.price ?? 0);
+
+    if (activePromo && Number(activePromo.discount_percentage) > 0) {
+      const discountedBase = calculateDiscountedPrice(rawBase, Number(activePromo.discount_percentage));
+
+      if (item.selected_options && Object.keys(item.selected_options).length > 0) {
+        let extraPrice = 0;
+        Object.values(item.selected_options).forEach((choice: any) => {
+          if (Array.isArray(choice)) {
+            choice.forEach(c => { extraPrice += (c?.extra_price || 0); });
+          } else if (choice) {
+            extraPrice += (choice?.extra_price || 0);
+          }
+        });
+        return item.is_weighted && item.weight
+          ? Math.round(((discountedBase + extraPrice) * item.weight) * 100) / 100
+          : Math.round((discountedBase + extraPrice) * 100) / 100;
+      }
+
+      if (item.is_weighted && item.weight) {
+        return Math.round((discountedBase * item.weight) * 100) / 100;
+      }
+
+      return discountedBase;
+    }
+
+    if (item.final_price != null && !item.discount_percentage) {
+      return item.final_price;
+    }
+
+    if (item.is_weighted && item.weight) {
+      return Math.round((rawBase * item.weight) * 100) / 100;
+    }
+
+    return rawBase;
+  }, [promotions, selectedBranch, branches, deliveryMode]);
+
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const totalPrice = cart.reduce((sum, item) => sum + ((item.final_price || item.price) * item.quantity), 0);
+  const totalPrice = cart.reduce((sum, item) => sum + (getCartItemUnitPrice(item) * item.quantity), 0);
 
   const getText = (ar: string, en: string) => isRTL ? ar : en;
 
@@ -1273,26 +1499,59 @@ export default function CustomerScreen() {
       ? (item.description_en || item.description)
       : (item.description);
 
+    const activePromo = getActivePromotionForItem(item.id, promotions, selectedBranch, branches, deliveryMode);
+    const hasDiscount = !!activePromo && Number(activePromo.discount_percentage) > 0;
+    const discountPercentage = hasDiscount ? Number(activePromo.discount_percentage) : 0;
+    const originalPrice = Number(item.price || 0);
+    const discountedPrice = hasDiscount
+      ? calculateDiscountedPrice(originalPrice, discountPercentage)
+      : originalPrice;
+
     return (
       <View style={[styles.menuItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
         <TouchableOpacity
           style={{ flex: 1, flexDirection: isRTL ? 'row-reverse' : 'row' }}
           onPress={() => {
-            setSelectedMeal(item);
+            setSelectedMeal({
+              ...item,
+              original_price: originalPrice,
+              final_price: discountedPrice,
+              discount_percentage: hasDiscount ? discountPercentage : undefined,
+            });
             setSelectedSize('وسط');
             setSelectedAddons([]);
             setSpecialInstructions('');
           }}
         >
-          <Image source={{ uri: item.image_url }} style={styles.menuItemImage} resizeMode="cover" />
+          <View style={{ position: 'relative' }}>
+            <Image source={{ uri: item.image_url }} style={styles.menuItemImage} resizeMode="cover" />
+            {hasDiscount && (
+              <View style={styles.promoBadge}>
+                <Text style={styles.promoBadgeText}>
+                  {discountPercentage}% {getText('خصم', 'OFF')} 🔥
+                </Text>
+              </View>
+            )}
+          </View>
           <View style={[styles.menuItemContent, isRTL ? { marginRight: 0, marginLeft: 12 } : { marginRight: 12, marginLeft: 0 }]}>
             <Text style={[styles.menuItemTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{itemName}</Text>
             <Text style={[styles.menuItemDescription, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={2}>
               {itemDesc}
             </Text>
-            <Text style={[styles.menuItemPrice, { color: primaryColor, textAlign: isRTL ? 'right' : 'left' }]}>
-              {item.price} {getText('ر.س', 'SAR')}
-            </Text>
+            {hasDiscount ? (
+              <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
+                <Text style={styles.discountedPriceText}>
+                  {discountedPrice} {getText('ر.س', 'SAR')}
+                </Text>
+                <Text style={styles.originalPriceStrikethrough}>
+                  {originalPrice} {getText('ر.س', 'SAR')}
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.menuItemPrice, { color: primaryColor, textAlign: isRTL ? 'right' : 'left' }]}>
+                {item.price} {getText('ر.س', 'SAR')}
+              </Text>
+            )}
           </View>
         </TouchableOpacity>
 
@@ -1300,7 +1559,12 @@ export default function CustomerScreen() {
           <TouchableOpacity
             style={{ backgroundColor: primaryColor, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, justifyContent: 'center' }}
             onPress={() => {
-              setSelectedMeal(item);
+              setSelectedMeal({
+                ...item,
+                original_price: originalPrice,
+                final_price: discountedPrice,
+                discount_percentage: hasDiscount ? discountPercentage : undefined,
+              });
               setSelectedSize('وسط');
               setSelectedAddons([]);
               setSpecialInstructions('');
@@ -1314,7 +1578,12 @@ export default function CustomerScreen() {
           <View style={[styles.quantitySelector, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
             <TouchableOpacity
               style={styles.quantityButton}
-              onPress={() => addToCart(item)}
+              onPress={() => addToCart({
+                ...item,
+                original_price: originalPrice,
+                final_price: discountedPrice,
+                discount_percentage: hasDiscount ? discountPercentage : undefined,
+              })}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Ionicons name="add" size={18} color={primaryColor} />
@@ -1429,7 +1698,7 @@ export default function CustomerScreen() {
 
       console.log('[Order] Starting submission — cart items:', cart.length);
       const subtotal = cart.reduce(
-        (sum, item) => sum + ((item.final_price ?? item.price) * item.quantity),
+        (sum, item) => sum + (getCartItemUnitPrice(item) * item.quantity),
         0
       );
       const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
@@ -1517,7 +1786,7 @@ export default function CustomerScreen() {
       // ── 2. Bulk Insert Order Items ────────────────────────────────
       const orderId = order.id;
       const itemsPayload = cart.map(item => {
-        const itemPrice = item.final_price ?? item.price ?? 0;
+        const itemPrice = getCartItemUnitPrice(item);
         return {
           order_id: orderId,
           menu_item_id: item.id || (item as any).menu_item_id,
@@ -1565,7 +1834,7 @@ export default function CustomerScreen() {
   };
 
   const renderCartModal = () => {
-    const subtotal = cart.reduce((sum, item) => sum + ((item.final_price || item.price) * item.quantity), 0);
+    const subtotal = cart.reduce((sum, item) => sum + (getCartItemUnitPrice(item) * item.quantity), 0);
     const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
     let total = subtotal + deliveryFee - discount;
     if (useWalletBalance && walletBalance > 0) {
@@ -1656,9 +1925,31 @@ export default function CustomerScreen() {
                         </Text>
                       ) : null}
 
-                      <Text style={{ fontSize: 13, color: primaryColor, marginTop: 4 }}>
-                        {`${item.final_price || item.price} ${getText('ر.س', 'SAR')}`}
-                      </Text>
+                      {(() => {
+                        const unitPrice = getCartItemUnitPrice(item);
+                        const activePromo = getActivePromotionForItem(item.id, promotions, selectedBranch, branches, deliveryMode);
+                        const hasDiscount = !!activePromo && Number(activePromo.discount_percentage) > 0;
+                        const originalPrice = item.original_price || item.price;
+                        return hasDiscount ? (
+                          <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#10B981' }}>
+                              {unitPrice} {getText('ر.س', 'SAR')}
+                            </Text>
+                            <Text style={{ fontSize: 11, color: '#9CA3AF', textDecorationLine: 'line-through' }}>
+                              {originalPrice} {getText('ر.س', 'SAR')}
+                            </Text>
+                            <View style={{ backgroundColor: '#FEF2F2', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                              <Text style={{ color: '#EF4444', fontSize: 10, fontWeight: '800' }}>
+                                {activePromo.discount_percentage}% OFF 🔥
+                              </Text>
+                            </View>
+                          </View>
+                        ) : (
+                          <Text style={{ fontSize: 13, color: primaryColor, marginTop: 4 }}>
+                            {`${unitPrice} ${getText('ر.س', 'SAR')}`}
+                          </Text>
+                        );
+                      })()}
                     </View>
                     {/* Unified Smart Counter */}
                     <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6 }}>
@@ -2804,7 +3095,13 @@ export default function CustomerScreen() {
       ? (selectedMeal?.description_en || selectedMeal?.description || '')
       : (selectedMeal?.description || '');
 
-    const basePrice = selectedMeal?.price || 0;
+    const rawBasePrice = Number(selectedMeal?.original_price ?? selectedMeal?.price ?? 0);
+    const activePromo = getActivePromotionForItem(selectedMeal?.id, promotions, selectedBranch, branches, deliveryMode);
+    const hasDiscount = !!activePromo && Number(activePromo.discount_percentage) > 0;
+    const discountPct = hasDiscount ? Number(activePromo.discount_percentage) : 0;
+    const basePrice = hasDiscount
+      ? calculateDiscountedPrice(rawBasePrice, discountPct)
+      : rawBasePrice;
 
     let extraPrice = 0;
     Object.values(selectedChoices).forEach(choice => {
@@ -2983,7 +3280,9 @@ export default function CustomerScreen() {
                         weight: selectedMeal.is_weighted ? mealQuantity : undefined,
                         quantity: selectedMeal.is_weighted ? 1 : mealQuantity,
                         selected_options: selectedChoices,
+                        original_price: rawBasePrice,
                         final_price: selectedMeal.is_weighted ? totalPrice : basePrice + extraPrice,
+                        discount_percentage: hasDiscount ? discountPct : undefined,
                         notes: specialInstructions
                       };
                       addToCart(payload);
@@ -3322,6 +3621,58 @@ export default function CustomerScreen() {
           <Text style={[styles.deliveryAddressText, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={1}>
             {deliveryAddress}
           </Text>
+        </View>
+      )}
+
+      {/* Pickup Branch Selector */}
+      {deliveryMode === 'pickup' && branches && branches.length > 0 && (
+        <View style={{ marginTop: 8 }}>
+          <TouchableOpacity
+            style={[styles.deliveryAddressContainer, { flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' }]}
+            onPress={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
+          >
+            <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+              <Ionicons name="storefront-outline" size={16} color={primaryColor} />
+              <Text style={[styles.deliveryAddressText, { textAlign: isRTL ? 'right' : 'left', color: '#1E293B', fontWeight: '600' }]} numberOfLines={1}>
+                {getText('الفرع:', 'Branch:')} {selectedBranch || branches[0]?.branch_name || branches[0]?.name}
+              </Text>
+            </View>
+            {branches.length > 1 && (
+              <Ionicons name={isBranchDropdownOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#64748B" />
+            )}
+          </TouchableOpacity>
+
+          {isBranchDropdownOpen && branches.length > 1 && (
+            <View style={{ backgroundColor: '#FFFFFF', borderRadius: 10, marginTop: 4, borderWidth: 1, borderColor: '#E2E8F0', padding: 4, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 }}>
+              {branches.map((b: any) => {
+                const bName = b.branch_name || b.name;
+                const isSel = selectedBranch === bName || selectedBranch === b.id;
+                return (
+                  <TouchableOpacity
+                    key={b.id || bName}
+                    style={{
+                      flexDirection: isRTL ? 'row-reverse' : 'row',
+                      alignItems: 'center',
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderRadius: 8,
+                      backgroundColor: isSel ? '#EEF2FF' : 'transparent',
+                      gap: 8,
+                    }}
+                    onPress={() => {
+                      setSelectedBranch(bName);
+                      setIsBranchDropdownOpen(false);
+                    }}
+                  >
+                    <Ionicons name={isSel ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={isSel ? primaryColor : '#94A3AF'} />
+                    <Text style={{ fontSize: 13, color: isSel ? primaryColor : '#334155', fontWeight: isSel ? '700' : '400' }}>
+                      {bName}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </View>
       )}
 
@@ -4035,6 +4386,48 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     marginTop: 4,
+  },
+  promoBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 4,
+    zIndex: 2,
+  },
+  promoBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  promoBadgeInline: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  discountedPriceText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#10B981',
+  },
+  originalPriceStrikethrough: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    textDecorationLine: 'line-through',
   },
   quantitySelector: {
     flexDirection: 'row',
