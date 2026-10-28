@@ -29,6 +29,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Svg, { Circle } from 'react-native-svg';
 let MapView: any = null;
 let PROVIDER_GOOGLE: any = null;
 if (Platform.OS !== 'web') {
@@ -259,6 +260,318 @@ export const calculateDiscountedPrice = (originalPrice: number, discountPercenta
   return Math.max(0, Math.round((originalPrice * (1 - pct / 100)) * 100) / 100);
 };
 
+export const calculateTimeLeft = (targetDateStr: string): number => {
+  if (!targetDateStr) return 0;
+  const endStr = String(targetDateStr).trim();
+  const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(endStr)
+    ? new Date(`${endStr}T23:59:59.999`)
+    : new Date(endStr);
+  const targetTime = targetDate.getTime();
+  if (isNaN(targetTime)) return 0;
+  return Math.max(0, targetTime - Date.now());
+};
+
+const circularCountdownStyles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  circleWrapper: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeText: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontWeight: '800',
+    color: '#0284C7',
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+});
+
+const circularHourglassStyles = StyleSheet.create({
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  timeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    letterSpacing: -0.2,
+  },
+});
+
+interface CircularHourglassCountdownProps {
+  startDate?: string;
+  endDate: string;
+  primaryColor?: string;
+  onExpire: () => void;
+  style?: any;
+}
+
+export const CircularHourglassCountdown: React.FC<CircularHourglassCountdownProps> = ({
+  startDate,
+  endDate,
+  primaryColor,
+  onExpire,
+  style,
+}) => {
+  const [timeLeftMs, setTimeLeftMs] = useState<number>(() => calculateTimeLeft(endDate));
+  const hasExpiredRef = useRef(false);
+  const totalDurationRef = useRef<number>(0);
+
+  useEffect(() => {
+    hasExpiredRef.current = false;
+    const initial = calculateTimeLeft(endDate);
+    setTimeLeftMs(initial);
+
+    const parseDateMs = (dStr?: string | null): number => {
+      if (!dStr) return 0;
+      const s = String(dStr).trim();
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T23:59:59.999`) : new Date(s);
+      const t = d.getTime();
+      return isNaN(t) ? 0 : t;
+    };
+
+    const startMs = parseDateMs(startDate);
+    const endMs = parseDateMs(endDate);
+    if (startMs > 0 && endMs > startMs) {
+      totalDurationRef.current = endMs - startMs;
+    } else {
+      totalDurationRef.current = Math.max(initial, 24 * 60 * 60 * 1000);
+    }
+
+    if (initial <= 0) {
+      hasExpiredRef.current = true;
+      onExpire();
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      const remaining = calculateTimeLeft(endDate);
+      setTimeLeftMs(remaining);
+
+      if (remaining <= 0) {
+        clearInterval(intervalId);
+        if (!hasExpiredRef.current) {
+          hasExpiredRef.current = true;
+          onExpire();
+        }
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [startDate, endDate, onExpire]);
+
+  if (timeLeftMs <= 0) {
+    return null;
+  }
+
+  const size = 24;
+  const strokeWidth = 2.2;
+  const radius = (size - strokeWidth) / 2;
+  const center = size / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  const totalMs = totalDurationRef.current > 0 ? totalDurationRef.current : 24 * 60 * 60 * 1000;
+  const progress = Math.min(1, Math.max(0, timeLeftMs / totalMs));
+  const strokeDashoffset = circumference * (1 - progress);
+
+  const totalSeconds = Math.floor(timeLeftMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const formattedTime = `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+
+  const brandColor = primaryColor || '#00B4D8';
+
+  return (
+    <View style={[circularHourglassStyles.pill, style]}>
+      <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+        <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
+          {/* Background Track Circle */}
+          <Circle
+            cx={center}
+            cy={center}
+            r={radius}
+            stroke="#E2E8F0"
+            strokeWidth={strokeWidth}
+            fill="transparent"
+          />
+          {/* Animated Progress Ring in Restaurant's Brand Primary Color */}
+          <Circle
+            cx={center}
+            cy={center}
+            r={radius}
+            stroke={brandColor}
+            strokeWidth={strokeWidth}
+            strokeDasharray={`${circumference} ${circumference}`}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            fill="transparent"
+          />
+        </Svg>
+        {/* Hourglass Icon inside the circle */}
+        <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={{ fontSize: 9, lineHeight: 11 }}>⏳</Text>
+        </View>
+      </View>
+      <Text style={circularHourglassStyles.timeText}>
+        {formattedTime}
+      </Text>
+    </View>
+  );
+};
+
+interface PromotionCountdownProps {
+  startDate?: string;
+  endDate: string;
+  isRTL: boolean;
+  getText: (ar: string, en: string) => string;
+  onExpire: () => void;
+  size?: number;
+}
+
+export const PromotionCountdown: React.FC<PromotionCountdownProps> = ({
+  startDate,
+  endDate,
+  isRTL,
+  getText,
+  onExpire,
+  size = 54,
+}) => {
+  const [timeLeftMs, setTimeLeftMs] = useState<number>(() => calculateTimeLeft(endDate));
+  const hasExpiredRef = useRef(false);
+  const totalDurationRef = useRef<number>(0);
+
+  useEffect(() => {
+    hasExpiredRef.current = false;
+    const initial = calculateTimeLeft(endDate);
+    setTimeLeftMs(initial);
+
+    // Compute total duration reference
+    const parseDateMs = (dStr?: string | null): number => {
+      if (!dStr) return 0;
+      const s = String(dStr).trim();
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T23:59:59.999`) : new Date(s);
+      const t = d.getTime();
+      return isNaN(t) ? 0 : t;
+    };
+
+    const startMs = parseDateMs(startDate);
+    const endMs = parseDateMs(endDate);
+    if (startMs > 0 && endMs > startMs) {
+      totalDurationRef.current = endMs - startMs;
+    } else {
+      totalDurationRef.current = Math.max(initial, 24 * 60 * 60 * 1000);
+    }
+
+    if (initial <= 0) {
+      hasExpiredRef.current = true;
+      onExpire();
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      const remaining = calculateTimeLeft(endDate);
+      setTimeLeftMs(remaining);
+
+      if (remaining <= 0) {
+        clearInterval(intervalId);
+        if (!hasExpiredRef.current) {
+          hasExpiredRef.current = true;
+          onExpire();
+        }
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [startDate, endDate, onExpire]);
+
+  if (timeLeftMs <= 0) {
+    return null;
+  }
+
+  const strokeWidth = Math.max(2.5, Math.round(size * 0.065 * 10) / 10);
+  const radius = (size - strokeWidth) / 2;
+  const center = size / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  const totalMs = totalDurationRef.current > 0 ? totalDurationRef.current : 24 * 60 * 60 * 1000;
+  const progress = Math.min(1, Math.max(0, timeLeftMs / totalMs));
+  const strokeDashoffset = circumference * (1 - progress);
+
+  const totalSeconds = Math.floor(timeLeftMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const formattedTime = `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+
+  const fontSize = size < 58 ? 8.5 : (size < 68 ? 9.5 : 11.5);
+
+  return (
+    <View style={circularCountdownStyles.container}>
+      <View style={[circularCountdownStyles.circleWrapper, { width: size, height: size }]}>
+        <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
+          {/* Background circle track: Soft cyan tint */}
+          <Circle
+            cx={center}
+            cy={center}
+            r={radius}
+            stroke="#E0F2FE"
+            strokeWidth={strokeWidth}
+            fill="#F0F9FF"
+          />
+          {/* Animated Cyan Progress Arc (سماوي) */}
+          <Circle
+            cx={center}
+            cy={center}
+            r={radius}
+            stroke="#00B4D8"
+            strokeWidth={strokeWidth}
+            strokeDasharray={`${circumference} ${circumference}`}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            fill="transparent"
+          />
+        </Svg>
+        {/* Centered Time Text */}
+        <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', paddingHorizontal: 2 }]}>
+          <Text
+            style={[
+              circularCountdownStyles.timeText,
+              {
+                fontSize,
+                color: '#0284C7',
+              },
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {formattedTime}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+};
+
 interface Region {
   latitude: number;
   longitude: number;
@@ -276,7 +589,10 @@ export default function CustomerScreen() {
     isLoading: isRestaurantLoading,
   } = useRestaurant();
   // ALL HOOKS MUST BE DECLARED FIRST - Strict Rules of Hooks
-  const [categories, setCategories] = useState<Category[]>([{ id: 'all', name: 'الكل' }]);
+  const [categories, setCategories] = useState<Category[]>([
+    { id: 'todays_offers', name: 'عرض اليوم 🔥', name_ar: 'عرض اليوم 🔥', name_en: "Today's Offer 🔥" },
+    { id: 'all', name: 'الكل', name_en: 'All' },
+  ]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -288,6 +604,13 @@ export default function CustomerScreen() {
   const [offers, setOffers] = useState<any[]>([]);
   const [promoCodesList, setPromoCodesList] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+
+  const handlePromotionExpired = useCallback((promoId: string) => {
+    console.log('[Promotions] Promotion countdown reached zero, auto-reverting UI:', promoId);
+    setPromotions(prevPromos =>
+      prevPromos.map(p => (p.id === promoId ? { ...p, is_active: false } : p))
+    );
+  }, []);
   const [activeTab, setActiveTab] = useState('menu');
   const [offersSection, setOffersSection] = useState('offers');
   const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('pickup');
@@ -1164,7 +1487,11 @@ export default function CustomerScreen() {
         console.error("Error fetching categories:", catErr);
       }
 
-      setCategories([{ id: 'all', name: 'الكل', name_en: 'All' }, ...fetchedCategories]);
+      setCategories([
+        { id: 'todays_offers', name: 'عرض اليوم 🔥', name_ar: 'عرض اليوم 🔥', name_en: "Today's Offer 🔥" },
+        { id: 'all', name: 'الكل', name_en: 'All' },
+        ...fetchedCategories,
+      ]);
 
       // 2. Fetch products / menu items strictly filtered by restaurant_id
       let fetchedItems: any[] = [];
@@ -1179,11 +1506,11 @@ export default function CustomerScreen() {
         if (!productsError && productsData && productsData.length > 0) {
           fetchedItems = productsData;
         } else {
-          // Try 'menu_items' table with restaurant_id
+          // Try 'menu_items' table with restaurant_id and shared restaurant_id
           const { data: menuItemsData, error: menuItemsError } = await supabase
             .from('menu_items')
             .select('*')
-            .eq('restaurant_id', TARGET_RESTAURANT_ID)
+            .or(`restaurant_id.eq.${TARGET_RESTAURANT_ID},restaurant_id.eq.22222222-2222-2222-2222-222222222222`)
             .order('sort_order', { ascending: true });
 
           if (!menuItemsError && menuItemsData && menuItemsData.length > 0) {
@@ -1266,24 +1593,20 @@ export default function CustomerScreen() {
         setPromoCodesList([]);
       }
 
-      // 5. Fetch central active promotions
+      // 5. Fetch all active promotions from central promotions table
       try {
-        let { data: promoList, error: promoListError } = await supabase
+        const { data: promoList, error: promoListError } = await supabase
           .from('promotions')
           .select('*')
           .eq('is_active', true);
 
         if (promoListError) {
-          console.warn('[Promotions] Query with is_active:', promoListError.message);
-        }
-
-        if (promoList && promoList.length > 0) {
-          const tenantPromos = promoList.filter((p: any) =>
-            !p.restaurant_id ||
-            p.restaurant_id === TARGET_RESTAURANT_ID ||
-            (process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID && p.restaurant_id === process.env.EXPO_PUBLIC_ACTIVE_RESTAURANT_ID)
-          );
-          setPromotions(tenantPromos.length > 0 ? tenantPromos : promoList);
+          console.warn('[Promotions] Query with is_active error:', promoListError.message);
+          setPromotions([]);
+        } else if (promoList && promoList.length > 0) {
+          const activePromos = promoList.filter((p: any) => isPromotionActive(p));
+          console.log('[Promotions] Loaded active promotions count:', activePromos.length);
+          setPromotions(activePromos);
         } else {
           setPromotions([]);
         }
@@ -1301,9 +1624,20 @@ export default function CustomerScreen() {
   };
 
   // Filter items by category
-  const filteredItems = !selectedCategory || selectedCategory === 'all' || selectedCategory === 'الكل'
-    ? menuItems
-    : menuItems.filter(item => item.category_id != null && String(item.category_id) === String(selectedCategory));
+  const filteredItems = selectedCategory === 'todays_offers'
+    ? menuItems.filter(item => {
+        return promotions.some(promo => {
+          return (
+            isPromotionActive(promo) &&
+            matchesBranch(promo, selectedBranch, branches) &&
+            matchesOrderType(promo, deliveryMode) &&
+            isItemInPromotion(promo, item.id)
+          );
+        });
+      })
+    : (!selectedCategory || selectedCategory === 'all' || selectedCategory === 'الكل'
+        ? menuItems
+        : menuItems.filter(item => item.category_id != null && String(item.category_id) === String(selectedCategory)));
 
   const addToCart = (item: CartItem | MenuItem) => {
     setCart(prevCart => {
@@ -1460,6 +1794,7 @@ export default function CustomerScreen() {
   };
 
   const renderCategory = (category: Category) => {
+    const isOffers = category.id === 'todays_offers';
     const isActive = selectedCategory === category.id;
     const categoryName = language === 'en'
       ? (category.name_en || category.name || category.title || category.name_ar || 'بدون اسم')
@@ -1470,7 +1805,18 @@ export default function CustomerScreen() {
         key={category.id}
         style={[
           styles.categoryItem,
-          isActive && [
+          isOffers && [
+            {
+              borderColor: isActive ? '#EF4444' : '#FCA5A5',
+              borderWidth: 1.5,
+              backgroundColor: isActive ? '#EF4444' : '#FEF2F2',
+            },
+            isActive && {
+              boxShadow: '0px 4px 12px rgba(239, 68, 68, 0.4)',
+              elevation: 4,
+            }
+          ],
+          !isOffers && isActive && [
             styles.categoryItemActive,
             { backgroundColor: primaryColor, boxShadow: `0px 4px 12px ${primaryColor}66` }
           ],
@@ -1481,10 +1827,14 @@ export default function CustomerScreen() {
         <Text
           style={[
             styles.categoryText,
-            isActive && styles.categoryTextActive,
+            isOffers && {
+              color: isActive ? '#FFFFFF' : '#DC2626',
+              fontWeight: '800',
+            },
+            !isOffers && isActive && styles.categoryTextActive,
           ]}
         >
-          {categoryName}
+          {isOffers ? `🔥 ${getText('عرض اليوم', "Today's Offer")}` : categoryName}
         </Text>
       </TouchableOpacity>
     );
@@ -1523,18 +1873,35 @@ export default function CustomerScreen() {
             setSpecialInstructions('');
           }}
         >
-          <View style={{ position: 'relative' }}>
-            <Image source={{ uri: item.image_url }} style={styles.menuItemImage} resizeMode="cover" />
+          <View style={styles.menuItemImageContainer}>
+            <Image
+              source={{ uri: item.image_url }}
+              style={styles.menuItemImage}
+              resizeMode="contain"
+            />
             {hasDiscount && (
-              <View style={styles.promoBadge}>
-                <Text style={styles.promoBadgeText}>
-                  {discountPercentage}% {getText('خصم', 'OFF')} 🔥
+              <View style={[styles.discountTagPill, isRTL ? { right: 6 } : { left: 6 }]}>
+                <Text style={styles.discountTagPillText}>
+                  {discountPercentage}% {getText('خصم', 'OFF')}
                 </Text>
               </View>
             )}
           </View>
-          <View style={[styles.menuItemContent, isRTL ? { marginRight: 0, marginLeft: 12 } : { marginRight: 12, marginLeft: 0 }]}>
-            <Text style={[styles.menuItemTitle, { textAlign: isRTL ? 'right' : 'left' }]}>{itemName}</Text>
+          <View style={[styles.menuItemContent, isRTL ? { marginRight: 0, marginLeft: 14 } : { marginRight: 14, marginLeft: 0 }]}>
+            <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <Text style={[styles.menuItemTitle, { flex: 1, textAlign: isRTL ? 'right' : 'left', marginBottom: 0 }]} numberOfLines={1}>
+                {itemName}
+              </Text>
+              {hasDiscount && !!activePromo?.end_date && (
+                <CircularHourglassCountdown
+                  startDate={activePromo.start_date}
+                  endDate={activePromo.end_date}
+                  primaryColor={primaryColor}
+                  onExpire={() => handlePromotionExpired(activePromo.id)}
+                  style={isRTL ? { marginRight: 8 } : { marginLeft: 8 }}
+                />
+              )}
+            </View>
             <Text style={[styles.menuItemDescription, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={2}>
               {itemDesc}
             </Text>
@@ -2761,7 +3128,11 @@ export default function CustomerScreen() {
         >
           {filteredItems.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>{getText('لا توجد أصناف في هذه الفئة', 'No items in this category')}</Text>
+              <Text style={styles.emptyText}>
+                {selectedCategory === 'todays_offers'
+                  ? getText('لا يوجد عرض نشط حالياً', 'No active offer right now')
+                  : getText('لا توجد أصناف في هذه الفئة', 'No items in this category')}
+              </Text>
             </View>
           ) : (
             filteredItems.map((item) => (
@@ -3162,6 +3533,34 @@ export default function CustomerScreen() {
                       {itemDesc}
                     </Text>
                   ) : null}
+
+                  {/* Promo Pricing & Countdown in Meal Modal */}
+                  {hasDiscount && (
+                    <View style={{ marginBottom: 16, alignSelf: isRTL ? 'flex-end' : 'flex-start' }}>
+                      <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 10 }}>
+                        <Text style={{ fontSize: 18, fontWeight: '800', color: '#10B981' }}>
+                          {basePrice} {getText('ر.س', 'SAR')}
+                        </Text>
+                        <Text style={[styles.originalPriceStrikethrough, { fontSize: 13 }]}>
+                          {rawBasePrice} {getText('ر.س', 'SAR')}
+                        </Text>
+                        <View style={styles.discountTagPillInline}>
+                          <Text style={styles.discountTagPillText}>
+                            {discountPct}% {getText('خصم', 'OFF')}
+                          </Text>
+                        </View>
+                        {!!activePromo?.end_date && (
+                          <CircularHourglassCountdown
+                            startDate={activePromo.start_date}
+                            endDate={activePromo.end_date}
+                            primaryColor={primaryColor}
+                            onExpire={() => handlePromotionExpired(activePromo.id)}
+                            style={isRTL ? { marginRight: 8 } : { marginLeft: 8 }}
+                          />
+                        )}
+                      </View>
+                    </View>
+                  )}
 
 
                   {/* Quantity/Weight Section */}
@@ -4353,78 +4752,86 @@ const styles = StyleSheet.create({
   },
   menuItem: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: 18,
     marginBottom: 16,
-    padding: 18,
+    padding: 20,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.08)',
+    borderColor: '#F1F5F9',
+    boxShadow: '0px 2px 10px rgba(0, 0, 0, 0.04)',
     elevation: 2,
   },
+  menuItemImageContainer: {
+    width: 90,
+    height: 90,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    position: 'relative',
+  },
   menuItemImage: {
-    width: 88,
-    height: 88,
-    borderRadius: 12,
+    width: '100%',
+    height: '100%',
+  },
+  discountTagPill: {
+    position: 'absolute',
+    top: 6,
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 3,
+    zIndex: 3,
+  },
+  discountTagPillInline: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  discountTagPillText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   menuItemContent: {
     flex: 1,
   },
   menuItemTitle: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: '700',
-    color: '#1F2937',
+    color: '#1E293B',
     marginBottom: 4,
   },
   menuItemDescription: {
-    fontSize: 13,
-    color: '#6B7280',
+    fontSize: 12.5,
+    color: '#64748B',
     lineHeight: 18,
     marginBottom: 8,
   },
   menuItemPrice: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
     marginTop: 4,
   },
-  promoBadge: {
-    position: 'absolute',
-    top: 6,
-    left: 6,
-    backgroundColor: '#EF4444',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 4,
-    zIndex: 2,
-  },
-  promoBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  promoBadgeInline: {
-    backgroundColor: '#EF4444',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   discountedPriceText: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#10B981',
   },
   originalPriceStrikethrough: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
     color: '#9CA3AF',
     textDecorationLine: 'line-through',

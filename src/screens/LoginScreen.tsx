@@ -358,7 +358,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
     overflow: 'hidden',
     marginBottom: 16,
-    ...(Platform.OS === 'web' ? { direction: 'ltr' } : {}),
+    ...(Platform.OS === 'web' ? { writingDirection: 'ltr' as const } : {}),
   },
   prefixContainer: {
     backgroundColor: '#F3F4F6',
