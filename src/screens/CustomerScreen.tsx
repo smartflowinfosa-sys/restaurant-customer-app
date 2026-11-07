@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Modal,
   Dimensions,
+  useWindowDimensions,
   Alert as RNAlert,
   TextInput,
   I18nManager,
@@ -29,7 +30,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Svg, { Circle } from 'react-native-svg';
+import Svg, { Circle, Path, Defs, LinearGradient, Stop, ClipPath, G } from 'react-native-svg';
 let MapView: any = null;
 let PROVIDER_GOOGLE: any = null;
 if (Platform.OS !== 'web') {
@@ -42,11 +43,24 @@ import { useRestaurant, TARGET_RESTAURANT_ID } from '../contexts/RestaurantConte
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import LoginScreen from './LoginScreen';
+import AnimatedSplashScreen from '../components/AnimatedSplashScreen';
 
 const RESTAURANT_ID = TARGET_RESTAURANT_ID;
 
-// Turquoise color scheme
-const TURQUOISE_COLOR = '#00B4D8';
+// Material Expressive Color Palette (matched to reference mockup)
+export const BG_WARM = '#F9F9F6';
+export const DEEP_TEAL = '#055055';
+export const TEXT_TEAL_DARK = '#053B3F';
+export const TEXT_TEAL_MUTED = '#4B6B6E';
+export const PILL_MINT = '#D0EBE3';
+export const CARD_MINT = '#E2F3EE';
+export const CARD_IMAGE_MINT = '#BDE3D8';
+export const NAV_MINT = '#D4EEE7';
+export const ACCENT_ORANGE = '#F37324';
+export const STAR_GOLD = '#F4B928';
+
+// Turquoise color scheme fallback
+const TURQUOISE_COLOR = DEEP_TEAL;
 const WHITE_COLOR = '#FFFFFF';
 
 // Default coordinates (Jeddah)
@@ -295,17 +309,17 @@ const circularHourglassStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#F8FAFC',
-    paddingHorizontal: 7,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 14,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#BCE3D8',
   },
   timeText: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#64748B',
+    fontWeight: '700',
+    color: DEEP_TEAL,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     letterSpacing: -0.2,
   },
@@ -590,8 +604,8 @@ export default function CustomerScreen() {
   } = useRestaurant();
   // ALL HOOKS MUST BE DECLARED FIRST - Strict Rules of Hooks
   const [categories, setCategories] = useState<Category[]>([
-    { id: 'todays_offers', name: 'عرض اليوم 🔥', name_ar: 'عرض اليوم 🔥', name_en: "Today's Offer 🔥" },
     { id: 'all', name: 'الكل', name_en: 'All' },
+    { id: 'todays_offers', name: 'العروض', name_ar: 'العروض', name_en: 'Offers' },
   ]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -613,7 +627,7 @@ export default function CustomerScreen() {
   }, []);
   const [activeTab, setActiveTab] = useState('menu');
   const [offersSection, setOffersSection] = useState('offers');
-  const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('pickup');
+  const [deliveryMode, setDeliveryMode] = useState<'delivery' | 'pickup'>('delivery');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [language, setLanguage] = useState<'ar' | 'en'>('ar');
   const [userLocation, setUserLocation] = useState(DEFAULT_COORDS);
@@ -674,12 +688,30 @@ export default function CustomerScreen() {
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [useWalletBalance, setUseWalletBalance] = useState<boolean>(false);
   const [session, setSession] = useState<any>(null);
+  const [hasCheckedInitialSession, setHasCheckedInitialSession] = useState<boolean>(false);
+  const [isGuestBrowsing, setIsGuestBrowsing] = useState<boolean>(false);
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [menuSearchQuery, setMenuSearchQuery] = useState<string>('');
+  const [activeBannerSlide, setActiveBannerSlide] = useState<number>(0);
+  const [bannerMeasuredWidth, setBannerMeasuredWidth] = useState<number>(0);
+  const [failedItemImages, setFailedItemImages] = useState<Record<string, boolean>>({});
+  const bannerScrollRef = useRef<ScrollView | null>(null);
   const hasRequestedPermissions = useRef(false);
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
 
-  const primaryColor = contextPrimaryColor || TURQUOISE_COLOR;
+  const normalizedCtxColor = contextPrimaryColor?.trim().toLowerCase();
+  const primaryColor = (normalizedCtxColor && normalizedCtxColor !== '#00b4d8')
+    ? contextPrimaryColor!
+    : DEEP_TEAL;
   const isRTL = language === 'ar';
+  const rtlRow: 'row' | 'row-reverse' =
+    (isRTL && !I18nManager.isRTL) || (!isRTL && I18nManager.isRTL) ? 'row-reverse' : 'row';
+  const shouldFlipScroll = isRTL && !I18nManager.isRTL;
+  const alignReadingStart: 'flex-start' | 'flex-end' =
+    (isRTL && !I18nManager.isRTL) || (!isRTL && I18nManager.isRTL) ? 'flex-end' : 'flex-start';
+  const alignPhysicalRight: 'flex-start' | 'flex-end' =
+    I18nManager.isRTL ? 'flex-start' : 'flex-end';
 
   const CART_STORAGE_KEY = '@restaurant_cart';
 
@@ -693,15 +725,19 @@ export default function CustomerScreen() {
   // ALL USEEFFECT HOOKS MUST BE DECLARED BEFORE ANY CONDITIONAL RETURNS
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        setCustomerPhone(session.user.phone?.replace('+966', '0') || '');
-        if (session.user.user_metadata?.name) {
-          setCustomerName(session.user.user_metadata.name);
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setSession(session);
+        if (session?.user) {
+          setCustomerPhone(session.user.phone?.replace('+966', '0') || '');
+          if (session.user.user_metadata?.name) {
+            setCustomerName(session.user.user_metadata.name);
+          }
         }
-      }
-    });
+      })
+      .finally(() => {
+        setHasCheckedInitialSession(true);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
@@ -994,10 +1030,15 @@ export default function CustomerScreen() {
     })();
   }, [deliveryMode]);
 
+  const handleSplashFinish = useCallback(() => {
+    setIsAppReady(true);
+  }, []);
+
   useEffect(() => {
+    // Safety fallback timer after animated splash sequence (~2.15s) completes
     const timer = setTimeout(() => {
       setIsAppReady(true);
-    }, 2000);
+    }, 2800);
     return () => clearTimeout(timer);
   }, []);
 
@@ -1488,9 +1529,9 @@ export default function CustomerScreen() {
       }
 
       setCategories([
-        { id: 'todays_offers', name: 'عرض اليوم 🔥', name_ar: 'عرض اليوم 🔥', name_en: "Today's Offer 🔥" },
         { id: 'all', name: 'الكل', name_en: 'All' },
         ...fetchedCategories,
+        { id: 'todays_offers', name: 'العروض', name_ar: 'العروض', name_en: 'Offers' },
       ]);
 
       // 2. Fetch products / menu items strictly filtered by restaurant_id
@@ -1623,8 +1664,8 @@ export default function CustomerScreen() {
     }
   };
 
-  // Filter items by category
-  const filteredItems = selectedCategory === 'todays_offers'
+  // Filter items by category and live search query
+  const categoryFilteredItems = selectedCategory === 'todays_offers'
     ? menuItems.filter(item => {
         return promotions.some(promo => {
           return (
@@ -1638,6 +1679,17 @@ export default function CustomerScreen() {
     : (!selectedCategory || selectedCategory === 'all' || selectedCategory === 'الكل'
         ? menuItems
         : menuItems.filter(item => item.category_id != null && String(item.category_id) === String(selectedCategory)));
+
+  const filteredItems = menuSearchQuery.trim() === ''
+    ? categoryFilteredItems
+    : categoryFilteredItems.filter(item => {
+        const q = menuSearchQuery.trim().toLowerCase();
+        const titleAr = (item.name || item.name_ar || item.title || '').toLowerCase();
+        const titleEn = (item.name_en || '').toLowerCase();
+        const descAr = (item.description || '').toLowerCase();
+        const descEn = (item.description_en || '').toLowerCase();
+        return titleAr.includes(q) || titleEn.includes(q) || descAr.includes(q) || descEn.includes(q);
+      });
 
   const addToCart = (item: CartItem | MenuItem) => {
     setCart(prevCart => {
@@ -1796,45 +1848,32 @@ export default function CustomerScreen() {
   const renderCategory = (category: Category) => {
     const isOffers = category.id === 'todays_offers';
     const isActive = selectedCategory === category.id;
-    const categoryName = language === 'en'
-      ? (category.name_en || category.name || category.title || category.name_ar || 'بدون اسم')
-      : (category.name || category.title || category.name_ar || 'بدون اسم');
+    const categoryName = isOffers
+      ? getText('العروض', 'Offers')
+      : language === 'en'
+        ? (category.name_en || category.name || category.title || category.name_ar || 'All')
+        : (category.name || category.title || category.name_ar || 'الكل');
 
     return (
       <TouchableOpacity
         key={category.id}
         style={[
-          styles.categoryItem,
-          isOffers && [
-            {
-              borderColor: isActive ? '#EF4444' : '#FCA5A5',
-              borderWidth: 1.5,
-              backgroundColor: isActive ? '#EF4444' : '#FEF2F2',
-            },
-            isActive && {
-              boxShadow: '0px 4px 12px rgba(239, 68, 68, 0.4)',
-              elevation: 4,
-            }
-          ],
-          !isOffers && isActive && [
-            styles.categoryItemActive,
-            { backgroundColor: primaryColor, boxShadow: `0px 4px 12px ${primaryColor}66` }
-          ],
-          { transform: [{ scaleX: isRTL ? -1 : 1 }] }
+          styles.categoryPill,
+          isActive
+            ? [styles.categoryPillActive, { backgroundColor: primaryColor }]
+            : styles.categoryPillInactive,
+          { transform: [{ scaleX: shouldFlipScroll ? -1 : 1 }] }
         ]}
         onPress={() => setSelectedCategory(category.id)}
+        activeOpacity={0.85}
       >
         <Text
           style={[
-            styles.categoryText,
-            isOffers && {
-              color: isActive ? '#FFFFFF' : '#DC2626',
-              fontWeight: '800',
-            },
-            !isOffers && isActive && styles.categoryTextActive,
+            styles.categoryPillText,
+            isActive ? styles.categoryPillTextActive : styles.categoryPillTextInactive,
           ]}
         >
-          {isOffers ? `🔥 ${getText('عرض اليوم', "Today's Offer")}` : categoryName}
+          {categoryName}
         </Text>
       </TouchableOpacity>
     );
@@ -1857,121 +1896,158 @@ export default function CustomerScreen() {
       ? calculateDiscountedPrice(originalPrice, discountPercentage)
       : originalPrice;
 
+    const handleOpenMealDetail = () => {
+      setSelectedMeal({
+        ...item,
+        original_price: originalPrice,
+        final_price: discountedPrice,
+        discount_percentage: hasDiscount ? discountPercentage : undefined,
+      });
+      setSelectedSize('وسط');
+      setSelectedAddons([]);
+      setSpecialInstructions('');
+    };
+
+    const isWeightedOrCustomizable = Boolean((item as any).is_weighted || (item as any).has_options);
+    const showPlaceholderImage = !item.image_url || failedItemImages[item.id];
+
     return (
-      <View style={[styles.menuItem, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+      <View style={[styles.menuItem, { flexDirection: rtlRow }]}>
+        {/* 1. RIGHT SIDE: Rounded Square Image Container */}
         <TouchableOpacity
-          style={{ flex: 1, flexDirection: isRTL ? 'row-reverse' : 'row' }}
-          onPress={() => {
-            setSelectedMeal({
-              ...item,
-              original_price: originalPrice,
-              final_price: discountedPrice,
-              discount_percentage: hasDiscount ? discountPercentage : undefined,
-            });
-            setSelectedSize('وسط');
-            setSelectedAddons([]);
-            setSpecialInstructions('');
-          }}
+          style={styles.menuItemImageContainer}
+          onPress={handleOpenMealDetail}
+          activeOpacity={0.9}
         >
-          <View style={styles.menuItemImageContainer}>
+          {showPlaceholderImage ? (
+            <View style={styles.menuItemPlaceholderBox}>
+              <Ionicons name="image-outline" size={34} color="#356968" />
+              <Text style={styles.menuItemPlaceholderText}>
+                {getText('صورة الطبق', 'Dish Photo')}
+              </Text>
+            </View>
+          ) : (
             <Image
               source={{ uri: item.image_url }}
               style={styles.menuItemImage}
-              resizeMode="contain"
+              resizeMode="cover"
+              onError={() => setFailedItemImages(prev => ({ ...prev, [item.id]: true }))}
             />
-            {hasDiscount && (
-              <View style={[styles.discountTagPill, isRTL ? { right: 6 } : { left: 6 }]}>
-                <Text style={styles.discountTagPillText}>
-                  {discountPercentage}% {getText('خصم', 'OFF')}
-                </Text>
-              </View>
-            )}
-          </View>
-          <View style={[styles.menuItemContent, isRTL ? { marginRight: 0, marginLeft: 14 } : { marginRight: 14, marginLeft: 0 }]}>
-            <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <Text style={[styles.menuItemTitle, { flex: 1, textAlign: isRTL ? 'right' : 'left', marginBottom: 0 }]} numberOfLines={1}>
-                {itemName}
+          )}
+
+          {hasDiscount && (
+            <View style={[styles.discountTagPill, isRTL ? { right: 6 } : { left: 6 }]}>
+              <Text style={styles.discountTagPillText}>
+                {discountPercentage}% {getText('خصم', 'OFF')}
               </Text>
-              {hasDiscount && !!activePromo?.end_date && (
-                <CircularHourglassCountdown
-                  startDate={activePromo.start_date}
-                  endDate={activePromo.end_date}
-                  primaryColor={primaryColor}
-                  onExpire={() => handlePromotionExpired(activePromo.id)}
-                  style={isRTL ? { marginRight: 8 } : { marginLeft: 8 }}
-                />
-              )}
             </View>
-            <Text style={[styles.menuItemDescription, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={2}>
+          )}
+        </TouchableOpacity>
+
+        {/* 2. MIDDLE / LEFT-OF-IMAGE: Title, Description, Price & Countdown */}
+        <TouchableOpacity
+          style={[
+            styles.menuItemContent,
+            { alignItems: alignReadingStart }
+          ]}
+          onPress={handleOpenMealDetail}
+          activeOpacity={0.85}
+        >
+          <Text
+            style={[styles.menuItemTitle, { textAlign: isRTL ? 'right' : 'left' }]}
+            numberOfLines={1}
+          >
+            {itemName}
+          </Text>
+
+          {!!itemDesc && (
+            <Text
+              style={[styles.menuItemDescription, { textAlign: isRTL ? 'right' : 'left' }]}
+              numberOfLines={2}
+            >
               {itemDesc}
             </Text>
-            {hasDiscount ? (
-              <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                <Text style={styles.discountedPriceText}>
+          )}
+
+          {hasDiscount ? (
+            <View style={{ alignItems: alignReadingStart, marginTop: 2 }}>
+              <View style={{ flexDirection: rtlRow, alignItems: 'baseline', gap: 6 }}>
+                <Text style={[styles.discountedPriceText, { color: primaryColor }]}>
                   {discountedPrice} {getText('ر.س', 'SAR')}
                 </Text>
                 <Text style={styles.originalPriceStrikethrough}>
                   {originalPrice} {getText('ر.س', 'SAR')}
                 </Text>
               </View>
-            ) : (
-              <Text style={[styles.menuItemPrice, { color: primaryColor, textAlign: isRTL ? 'right' : 'left' }]}>
-                {item.price} {getText('ر.س', 'SAR')}
-              </Text>
-            )}
-          </View>
+              {!!activePromo?.end_date && (
+                <View style={{ marginTop: 5 }}>
+                  <CircularHourglassCountdown
+                    startDate={activePromo.start_date}
+                    endDate={activePromo.end_date}
+                    primaryColor={primaryColor}
+                    onExpire={() => handlePromotionExpired(activePromo.id)}
+                  />
+                </View>
+              )}
+            </View>
+          ) : (
+            <Text style={[styles.menuItemPrice, { color: primaryColor, textAlign: isRTL ? 'right' : 'left' }]}>
+              {item.price} {getText('ر.س', 'SAR')}
+            </Text>
+          )}
         </TouchableOpacity>
 
-        {((item as any).is_weighted || (item as any).has_options) ? (
-          <TouchableOpacity
-            style={{ backgroundColor: primaryColor, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, justifyContent: 'center' }}
-            onPress={() => {
-              setSelectedMeal({
-                ...item,
-                original_price: originalPrice,
-                final_price: discountedPrice,
-                discount_percentage: hasDiscount ? discountPercentage : undefined,
-              });
-              setSelectedSize('وسط');
-              setSelectedAddons([]);
-              setSpecialInstructions('');
-            }}
-          >
-            <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 14 }}>
-              {getText('تخصيص', 'Customize')}
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={[styles.quantitySelector, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+        {/* 3. BOTTOM-LEFT / LEFT SIDE: Prominent Dark Teal '+' Button or Expanded Counter */}
+        <View style={styles.menuItemActionZone}>
+          {quantity === 0 || isWeightedOrCustomizable ? (
             <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => addToCart({
-                ...item,
-                original_price: originalPrice,
-                final_price: discountedPrice,
-                discount_percentage: hasDiscount ? discountPercentage : undefined,
-              })}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={[styles.expressiveAddButton, { backgroundColor: primaryColor }]}
+              onPress={() => {
+                if (isWeightedOrCustomizable) {
+                  handleOpenMealDetail();
+                } else {
+                  addToCart({
+                    ...item,
+                    original_price: originalPrice,
+                    final_price: discountedPrice,
+                    discount_percentage: hasDiscount ? discountPercentage : undefined,
+                  });
+                }
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.85}
             >
-              <Ionicons name="add" size={18} color={primaryColor} />
+              <Ionicons name="add" size={26} color="#FFFFFF" />
             </TouchableOpacity>
-            <Text style={[styles.quantityText, { color: primaryColor }]}>
-              {quantity > 0 ? quantity : 0}
-            </Text>
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => removeFromCart(item.id)}
-              disabled={quantity === 0}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons
-                name="remove"
-                size={18}
-                color={quantity > 0 ? primaryColor : '#9CA3AF'}
-              />
-            </TouchableOpacity>
-          </View>
-        )}
+          ) : (
+            <View style={[styles.expressiveCounterContainer, { flexDirection: rtlRow, borderColor: primaryColor }]}>
+              <TouchableOpacity
+                style={[styles.expressiveCounterBtn, { backgroundColor: primaryColor }]}
+                onPress={() => addToCart({
+                  ...item,
+                  original_price: originalPrice,
+                  final_price: discountedPrice,
+                  discount_percentage: hasDiscount ? discountPercentage : undefined,
+                })}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
+              <Text style={[styles.expressiveCounterText, { color: primaryColor }]}>
+                {quantity}
+              </Text>
+              <TouchableOpacity
+                style={styles.expressiveCounterMinusBtn}
+                onPress={() => removeFromCart(item.id)}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="remove" size={16} color={primaryColor} />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       </View>
     );
   };
@@ -1979,22 +2055,39 @@ export default function CustomerScreen() {
   const renderBottomNavItem = (tabId: string, iconName: string, labelAr: string, labelEn: string) => {
     const isActive = activeTab === tabId;
 
+    if (isActive) {
+      return (
+        <TouchableOpacity
+          key={tabId}
+          style={[styles.bottomNavActivePill, { backgroundColor: primaryColor }]}
+          onPress={() => setActiveTab(tabId)}
+          activeOpacity={0.9}
+        >
+          <Ionicons
+            name={iconName as any}
+            size={21}
+            color="#FFFFFF"
+          />
+          <Text style={styles.bottomNavActiveText}>
+            {getText(labelAr, labelEn)}
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+
     return (
       <TouchableOpacity
+        key={tabId}
         style={styles.bottomNavItem}
         onPress={() => setActiveTab(tabId)}
+        activeOpacity={0.75}
       >
         <Ionicons
           name={iconName as any}
-          size={24}
-          color={isActive ? primaryColor : '#6B7280'}
+          size={21}
+          color={TEXT_TEAL_DARK}
         />
-        <Text
-          style={[
-            styles.bottomNavText,
-            isActive && { color: primaryColor },
-          ]}
-        >
+        <Text style={styles.bottomNavText}>
           {getText(labelAr, labelEn)}
         </Text>
       </TouchableOpacity>
@@ -3024,122 +3117,142 @@ export default function CustomerScreen() {
   };
 
   const renderMenuSkeleton = () => (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-      {/* Category Pills Skeleton */}
-      <View style={{ paddingVertical: 12, paddingHorizontal: 16 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-          {[90, 110, 80, 100, 85].map((w, idx) => (
-            <View
-              key={idx}
-              style={{
-                width: w,
-                height: 38,
-                borderRadius: 20,
-                backgroundColor: '#F1F5F9',
-              }}
-            />
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Menu Item Cards Skeleton */}
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, gap: 16 }}>
-        {[1, 2, 3, 4, 5].map((_, idx) => (
+    <View style={{ paddingHorizontal: 16, gap: 14, paddingTop: 4 }}>
+      {[1, 2, 3, 4].map((_, idx) => (
+        <View
+          key={idx}
+          style={{
+            flexDirection: rtlRow,
+            backgroundColor: CARD_MINT,
+            borderRadius: 24,
+            padding: 12,
+            alignItems: 'center',
+          }}
+        >
           <View
-            key={idx}
             style={{
-              flexDirection: isRTL ? 'row-reverse' : 'row',
-              backgroundColor: '#FFFFFF',
-              borderRadius: 16,
-              padding: 12,
-              borderWidth: 1,
-              borderColor: '#F1F5F9',
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.04,
-              shadowRadius: 4,
-              elevation: 1,
-              alignItems: 'center',
+              width: 104,
+              height: 104,
+              borderRadius: 20,
+              backgroundColor: CARD_IMAGE_MINT,
             }}
-          >
-            {/* Image Skeleton */}
-            <View
-              style={{
-                width: 90,
-                height: 90,
-                borderRadius: 12,
-                backgroundColor: '#E2E8F0',
-              }}
-            />
-
-            {/* Content Skeleton */}
-            <View style={{ flex: 1, marginHorizontal: 14, gap: 8, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
-              <View style={{ width: '70%', height: 16, borderRadius: 8, backgroundColor: '#E2E8F0' }} />
-              <View style={{ width: '90%', height: 12, borderRadius: 6, backgroundColor: '#F1F5F9' }} />
-              <View style={{ width: '40%', height: 14, borderRadius: 7, backgroundColor: '#E2E8F0', marginTop: 4 }} />
-            </View>
-
-            {/* Action Button Skeleton */}
-            <View
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                backgroundColor: '#F1F5F9',
-              }}
-            />
+          />
+          <View style={{ flex: 1, marginHorizontal: 14, gap: 9, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
+            <View style={{ width: '72%', height: 17, borderRadius: 9, backgroundColor: '#C5E6DC' }} />
+            <View style={{ width: '92%', height: 12, borderRadius: 6, backgroundColor: '#D3EDE5' }} />
+            <View style={{ width: '44%', height: 15, borderRadius: 8, backgroundColor: '#C5E6DC', marginTop: 4 }} />
           </View>
-        ))}
-
-        <View style={{ alignItems: 'center', paddingVertical: 16 }}>
-          <ActivityIndicator size="small" color={primaryColor} />
-          <Text style={{ marginTop: 8, fontSize: 13, color: '#94A3B8' }}>
-            {getText('جاري تحديث قائمة الطعام...', 'Updating menu catalog...')}
-          </Text>
+          <View
+            style={{
+              width: 52,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: '#C5E6DC',
+            }}
+          />
         </View>
-      </ScrollView>
+      ))}
+      <View style={{ alignItems: 'center', paddingVertical: 14 }}>
+        <ActivityIndicator size="small" color={primaryColor} />
+        <Text style={{ marginTop: 8, fontSize: 13, color: TEXT_TEAL_MUTED }}>
+          {getText('جاري تحديث قائمة الطعام...', 'Updating menu catalog...')}
+        </Text>
+      </View>
     </View>
   );
 
   const renderMenuTab = () => {
-    if (loading) {
-      return renderMenuSkeleton();
-    }
-
     return (
-      <>
-        {/* Categories */}
-        <View style={styles.categoriesContainer}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[styles.categoriesList, { flexDirection: 'row' }]}
-            style={{ transform: [{ scaleX: isRTL ? -1 : 1 }] }}
-          >
-            {categories.map(renderCategory)}
-          </ScrollView>
-        </View>
-
-        {/* Menu Items */}
+      <View style={{ flex: 1, backgroundColor: BG_WARM }}>
         <ScrollView
-          style={styles.menuContainer}
+          style={styles.menuScrollRoot}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.menuContent}
+          contentContainerStyle={styles.menuScrollContent}
+          keyboardShouldPersistTaps="handled"
         >
-          {filteredItems.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                {selectedCategory === 'todays_offers'
-                  ? getText('لا يوجد عرض نشط حالياً', 'No active offer right now')
-                  : getText('لا توجد أصناف في هذه الفئة', 'No items in this category')}
-              </Text>
+          {/* Decorative Organic Background Shapes (Material Expressive Mockup) */}
+          <View pointerEvents="none" style={styles.bgDecorTopRight}>
+            <Svg width={270} height={125} viewBox="0 0 270 125">
+              <Path
+                d="M 18,0 C 52,38 118,86 270,114 L 270,0 Z"
+                fill="#DCEFE9"
+              />
+            </Svg>
+          </View>
+          <View pointerEvents="none" style={styles.bgDecorMidLeft}>
+            <Svg width={66} height={150} viewBox="0 0 66 150">
+              <Path
+                d="M 0,14 C 28,2 62,16 58,54 C 54,90 22,122 0,144 Z"
+                fill="#AEE2D6"
+              />
+            </Svg>
+          </View>
+
+          {/* 1. Top Location Pill + Organic Wavy Promo Banner + Restaurant Info + Search & Action Pills */}
+          {renderMenuHeader()}
+
+          {/* 2. Horizontal Scrolling Category Pills */}
+          <View style={styles.categoriesContainer}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={[styles.categoriesList, { flexDirection: 'row' }]}
+              style={{ transform: [{ scaleX: shouldFlipScroll ? -1 : 1 }] }}
+            >
+              {categories.map(renderCategory)}
+            </ScrollView>
+          </View>
+
+          {/* 3. Section Heading: "من قائمتنا" + Expressive Orange Splash Droplets */}
+          <View style={[styles.fromOurMenuHeader, { flexDirection: rtlRow }]}>
+            <Text style={[styles.fromOurMenuTitle, { textAlign: isRTL ? 'right' : 'left' }]}>
+              {getText('من قائمتنا', 'From Our Menu')}
+            </Text>
+            <View style={[styles.fromOurMenuSplash, !isRTL && { transform: [{ scaleX: -1 }] }]}>
+              <Svg width={28} height={26} viewBox="0 0 28 26">
+                {/* Upper-right vertical droplet */}
+                <Path
+                  d="M 21.5,12.5 C 19.2,7.2 21.2,1.5 24.2,2.2 C 27,2.9 25.4,8.8 21.5,12.5 Z"
+                  fill={ACCENT_ORANGE}
+                />
+                {/* Middle diagonal droplet */}
+                <Path
+                  d="M 16.5,16.5 C 10.6,12.2 8.8,6.2 11.6,4.2 C 14.4,2.3 18.2,9.2 16.5,16.5 Z"
+                  fill={ACCENT_ORANGE}
+                />
+                {/* Lower-left horizontal droplet */}
+                <Path
+                  d="M 14.5,21.5 C 8,24 2.5,22.2 3.2,19 C 3.9,15.8 10.2,17.8 14.5,21.5 Z"
+                  fill={ACCENT_ORANGE}
+                />
+              </Svg>
             </View>
+          </View>
+
+          {/* 4. Menu Item Cards */}
+          {loading ? (
+            renderMenuSkeleton()
           ) : (
-            filteredItems.map((item) => (
-              <View key={item.id}>
-                {renderMenuItem({ item })}
-              </View>
-            ))
+            <View style={styles.menuCardsWrapper}>
+              {filteredItems.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="fish-outline" size={44} color={TEXT_TEAL_MUTED} style={{ marginBottom: 8, opacity: 0.65 }} />
+                  <Text style={styles.emptyText}>
+                    {menuSearchQuery.trim()
+                      ? getText('لا توجد أطباق مطابقة لبحثك', 'No dishes match your search')
+                      : selectedCategory === 'todays_offers'
+                        ? getText('لا يوجد عرض نشط حالياً', 'No active offer right now')
+                        : getText('لا توجد أصناف في هذه الفئة', 'No items in this category')}
+                  </Text>
+                </View>
+              ) : (
+                filteredItems.map((item) => (
+                  <View key={item.id}>
+                    {renderMenuItem({ item })}
+                  </View>
+                ))
+              )}
+            </View>
           )}
         </ScrollView>
 
@@ -3148,14 +3261,15 @@ export default function CustomerScreen() {
           <TouchableOpacity
             style={[styles.floatingCartFab, { backgroundColor: primaryColor }]}
             onPress={() => setIsCartModalVisible(true)}
+            activeOpacity={0.9}
           >
-            <Ionicons name="cart-outline" size={28} color="#FFFFFF" />
+            <Ionicons name="cart-outline" size={27} color="#FFFFFF" />
             <View style={styles.floatingCartFabBadge}>
               <Text style={[styles.floatingCartFabBadgeText, { color: primaryColor }]}>{totalItems}</Text>
             </View>
           </TouchableOpacity>
         )}
-      </>
+      </View>
     );
   };
 
@@ -3435,7 +3549,11 @@ export default function CustomerScreen() {
           {session ? (
             <TouchableOpacity
               style={[styles.logoutButton, { flexDirection: isRTL ? 'row-reverse' : 'row', marginHorizontal: 16, marginTop: 32, borderRadius: 12 }]}
-              onPress={async () => { await supabase.auth.signOut(); }}
+              onPress={async () => {
+                await supabase.auth.signOut();
+                setSession(null);
+                setIsGuestBrowsing(false);
+              }}
             >
               <Ionicons name="log-out-outline" size={24} color="#DC3545" />
               <Text style={styles.logoutButtonText}>{getText('تسجيل الخروج', 'Logout')}</Text>
@@ -3932,188 +4050,550 @@ export default function CustomerScreen() {
     </Modal>
   );
 
-  const renderMenuHeader = () => (
-    <View style={styles.menuHeader}>
-      {/* Restaurant Branding Header */}
-      <View style={[styles.brandingHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-        <View style={[styles.brandingLogoPlaceholder, { overflow: 'hidden', padding: 0, justifyContent: 'center', alignItems: 'center' }]}>
-          <Image
-            source={restaurant?.logo_url ? { uri: restaurant.logo_url } : require('../../assets/store-logo.jpeg')}
-            style={{ width: 50, height: 50, borderRadius: 25 }}
-          />
-        </View>
-        <View style={[styles.brandingInfo, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
-          <Text style={[styles.brandingTitle, { textAlign: isRTL ? 'right' : 'left' }]}>
-            {restaurant?.restaurant_name || restaurant?.name || 'مطعم'}
-          </Text>
-          <Text style={[styles.brandingSubtitle, { textAlign: isRTL ? 'right' : 'left' }]}>
-            {`⭐ 4.8 • ${getText('مفتوح', 'Open')} • 30 ${getText('دقيقة', 'mins')}`}
-          </Text>
-        </View>
-      </View>
+  const renderOrganicPromoBanner = () => {
+    // Build dynamic slides from Supabase offers & active promotions while preserving hero campaign design
+    const dynamicSlides: Array<{
+      id: string;
+      title: string;
+      subtitle?: string;
+      cta: string;
+      targetAction: () => void;
+    }> = [
+      {
+        id: 'hero-ocean-offers',
+        title: getText('عروض المحيط', 'Ocean Offers'),
+        subtitle: offers[0]
+          ? (isRTL ? (offers[0].title_ar || offers[0].title) : (offers[0].title || offers[0].title_ar))
+          : undefined,
+        cta: getText('تصفح العروض', 'Browse Offers'),
+        targetAction: () => {
+          if (promotions.length > 0) {
+            setSelectedCategory('todays_offers');
+          } else {
+            setActiveTab('offers');
+          }
+        },
+      },
+    ];
 
-      {/* Modern Search Bar */}
-      <View style={[styles.searchBarContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-        <Ionicons name="search" size={20} color="#9CA3AF" />
-        <TextInput
-          style={[styles.searchInput, { textAlign: isRTL ? 'right' : 'left' }]}
-          placeholder={getText('ابحث عن أطباقك المفضلة...', 'Search for your favorite dishes...')}
-          placeholderTextColor="#9CA3AF"
-        />
-      </View>
+    if (offers.length > 0) {
+      offers.slice(0, 2).forEach((offer, idx) => {
+        const offerTitle = isRTL ? (offer.title_ar || offer.title) : (offer.title || offer.title_ar);
+        const offerSub = isRTL ? (offer.description_ar || offer.description) : (offer.description || offer.description_ar);
+        if (offerTitle) {
+          dynamicSlides.push({
+            id: `offer-${offer.id || idx}`,
+            title: offerTitle,
+            subtitle: offerSub,
+            cta: getText('تصفح العروض', 'Browse Offers'),
+            targetAction: () => setActiveTab('offers'),
+          });
+        }
+      });
+    }
 
-      {/* Delivery/Pickup Toggle */}
-      <View style={[styles.deliveryToggle, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-        <TouchableOpacity
-          style={[
-            styles.toggleOption,
-            deliveryMode === 'delivery' && styles.toggleOptionActive,
-            deliveryMode === 'delivery' && { backgroundColor: primaryColor },
-          ]}
-          onPress={() => {
-            setDeliveryMode('delivery');
-            setShowLocationModal(true);
+    if (dynamicSlides.length < 3 && promotions.length > 0) {
+      const maxDiscount = Math.max(...promotions.map(p => Number(p.discount_percentage || 0)));
+      if (maxDiscount > 0) {
+        dynamicSlides.push({
+          id: 'promo-max-discount',
+          title: getText(`خصومات تصل إلى ${maxDiscount}%`, `Up to ${maxDiscount}% Off`),
+          subtitle: getText('عروض حصرية لفترة محدودة', 'Limited-time exclusive deals'),
+          cta: getText('تصفح العروض', 'Browse Offers'),
+          targetAction: () => setSelectedCategory('todays_offers'),
+        });
+      }
+    }
+
+    while (dynamicSlides.length < 3) {
+      const idx = dynamicSlides.length;
+      dynamicSlides.push({
+        id: `ocean-slide-${idx}`,
+        title: idx === 1
+          ? getText('طازج يومياً من البحر', 'Fresh Daily Catch')
+          : getText('توصيل سريع لبابك', 'Fast Doorstep Delivery'),
+        cta: getText('تصفح العروض', 'Browse Offers'),
+        targetAction: () => {
+          if (promotions.length > 0) {
+            setSelectedCategory('todays_offers');
+          } else {
+            setActiveTab('offers');
+          }
+        },
+      });
+    }
+
+    const slides = dynamicSlides.slice(0, 3);
+    const effectiveShellWidth = Platform.OS === 'web' && windowWidth > 540 ? 460 : windowWidth;
+    const slideWidth = bannerMeasuredWidth > 0 ? bannerMeasuredWidth : Math.max(280, effectiveShellWidth - 32);
+    const slideHeight = Math.max(174, Math.min(206, Math.round(slideWidth * 0.485)));
+
+    return (
+      <View
+        style={styles.organicBannerSection}
+        onLayout={(e) => {
+          const w = Math.round(e.nativeEvent.layout.width);
+          if (w > 0 && w !== bannerMeasuredWidth) {
+            setBannerMeasuredWidth(w);
+          }
+        }}
+      >
+        <ScrollView
+          ref={bannerScrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={32}
+          onScroll={(e) => {
+            const offsetX = e.nativeEvent.contentOffset.x;
+            if (slideWidth > 0) {
+              const page = Math.round(offsetX / slideWidth);
+              if (page >= 0 && page < slides.length && page !== activeBannerSlide) {
+                setActiveBannerSlide(page);
+              }
+            }
           }}
         >
-          <Ionicons
-            name="car"
-            size={24}
-            color={deliveryMode === 'delivery' ? '#FFFFFF' : primaryColor}
-          />
-          <Text
-            style={[
-              styles.toggleOptionText,
-              deliveryMode === 'delivery' && styles.toggleOptionTextActive,
-            ]}
-          >
-            {getText('توصيل', 'Delivery')}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.toggleOption,
-            deliveryMode === 'pickup' && styles.toggleOptionActive,
-            deliveryMode === 'pickup' && { backgroundColor: primaryColor },
-          ]}
-          onPress={() => setDeliveryMode('pickup')}
-        >
-          <Ionicons
-            name="storefront"
-            size={24}
-            color={deliveryMode === 'pickup' ? '#FFFFFF' : primaryColor}
-          />
-          <Text
-            style={[
-              styles.toggleOptionText,
-              deliveryMode === 'pickup' && styles.toggleOptionTextActive,
-            ]}
-          >
-            {getText('استلام', 'Pickup')}
-          </Text>
-        </TouchableOpacity>
-      </View>
+          {slides.map((slide, idx) => {
+            const clipId = `organicBannerClip_${idx}`;
+            const gradId = `oceanBannerGrad_${idx}`;
+            return (
+              <View
+                key={slide.id}
+                style={{ width: slideWidth, height: slideHeight, position: 'relative' }}
+              >
+                {/* Asymmetric Organic Wavy Top & Bottom SVG Silhouette + Multi-Layer Ocean Wave */}
+                <Svg
+                  width={slideWidth}
+                  height={slideHeight}
+                  viewBox="0 0 380 184"
+                  preserveAspectRatio="none"
+                  style={StyleSheet.absoluteFill}
+                >
+                  <Defs>
+                    <ClipPath id={clipId}>
+                      <Path d="M 8,96 C 14,34 48,4 96,5 C 144,6 174,17 218,15 C 262,13 302,3 334,12 C 366,21 377,52 376,92 C 375,136 352,165 306,167 C 262,169 224,161 180,165 C 136,169 104,181 64,177 C 24,173 3,144 8,96 Z" />
+                    </ClipPath>
+                    <LinearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+                      <Stop offset="0%" stopColor="#076B74" />
+                      <Stop offset="55%" stopColor={primaryColor} />
+                      <Stop offset="100%" stopColor="#043E42" />
+                    </LinearGradient>
+                  </Defs>
 
-      {/* Delivery Address Display */}
-      {deliveryMode === 'delivery' && !!deliveryAddress && (
-        <View style={[styles.deliveryAddressContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <Ionicons name="location" size={16} color={primaryColor} />
-          <Text style={[styles.deliveryAddressText, { textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={1}>
-            {deliveryAddress}
-          </Text>
+                  <G clipPath={`url(#${clipId})`}>
+                    {/* Deep Ocean Teal Background */}
+                    <Path d="M 0,0 H 380 V 184 H 0 Z" fill={`url(#${gradId})`} />
+
+                    {/* Outer Teal Ocean Swell */}
+                    <Path
+                      d="M -10,124 C 14,64 62,36 110,52 C 136,61 140,94 114,110 C 92,123 84,146 134,150 C 166,152 196,146 224,164 L 224,190 L -10,190 Z"
+                      fill="#0C7D88"
+                    />
+
+                    {/* Mid Aqua Curling Wave */}
+                    <Path
+                      d="M -8,142 C 12,84 54,56 96,66 C 116,71 120,95 100,106 C 76,119 70,149 122,154 C 152,157 176,150 200,166 L 200,190 L -8,190 Z"
+                      fill="#23A4B1"
+                    />
+
+                    {/* Bright Cyan Inner Wave Highlight */}
+                    <Path
+                      d="M 26,136 C 28,96 60,74 90,82 C 70,92 58,118 72,142 C 86,164 132,162 166,155 C 136,176 76,184 40,164 C 29,157 25,147 26,136 Z"
+                      fill="#63CDD7"
+                    />
+
+                    {/* Crisp White Curling Wave Foam Crest */}
+                    <Path
+                      d="M -6,118 C 14,72 52,43 88,47 C 108,49 118,65 111,83 C 102,72 87,67 69,72 C 41,80 15,101 -6,127 Z"
+                      fill="#FFFFFF"
+                    />
+
+                    {/* Lower Inner White Foam Ribbon */}
+                    <Path
+                      d="M 66,114 C 64,138 82,154 116,150 C 130,148 142,144 152,139 C 136,154 106,162 82,156 C 63,151 56,132 66,114 Z"
+                      fill="#FFFFFF"
+                      opacity={0.95}
+                    />
+
+                    {/* 3 Expressive Flying Water Droplets */}
+                    <Path
+                      d="M 106,42 C 104,31 109,20 114,22 C 118,24 114,35 106,42 Z"
+                      fill="#BCEAEF"
+                    />
+                    <Path
+                      d="M 113,47 C 120,34 133,22 139,26 C 144,30 130,42 113,47 Z"
+                      fill="#BCEAEF"
+                    />
+                    <Path
+                      d="M 116,55 C 123,50 132,49 133,53 C 134,57 124,58 116,55 Z"
+                      fill="#BCEAEF"
+                    />
+                  </G>
+                </Svg>
+
+                {/* Right-Aligned Campaign Headline & Vibrant Orange CTA Pill */}
+                <View
+                  style={[
+                    styles.organicBannerTextOverlay,
+                    { alignItems: alignPhysicalRight },
+                  ]}
+                >
+                  <Text
+                    style={styles.organicBannerHeadline}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
+                    {slide.title}
+                  </Text>
+                  {!!slide.subtitle && idx > 0 && (
+                    <Text style={styles.organicBannerSubtitle} numberOfLines={1}>
+                      {slide.subtitle}
+                    </Text>
+                  )}
+                  <TouchableOpacity
+                    style={styles.organicBannerCtaPill}
+                    onPress={slide.targetAction}
+                    activeOpacity={0.88}
+                  >
+                    <Text style={styles.organicBannerCtaText}>{slide.cta}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+
+        {/* Pagination Dots Below Wavy Banner */}
+        <View style={[styles.bannerPaginationRow, { flexDirection: rtlRow }]}>
+          {slides.map((s, dotIdx) => {
+            const isDotActive = activeBannerSlide === dotIdx;
+            return (
+              <TouchableOpacity
+                key={s.id}
+                onPress={() => {
+                  setActiveBannerSlide(dotIdx);
+                  bannerScrollRef.current?.scrollTo({ x: dotIdx * slideWidth, animated: true });
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                style={[
+                  styles.bannerDot,
+                  isDotActive
+                    ? { backgroundColor: primaryColor, transform: [{ scale: 1.08 }] }
+                    : { backgroundColor: '#AEE2D6' },
+                ]}
+              />
+            );
+          })}
         </View>
-      )}
+      </View>
+    );
+  };
 
-      {/* Pickup Branch Selector */}
-      {deliveryMode === 'pickup' && branches && branches.length > 0 && (
-        <View style={{ marginTop: 8 }}>
-          <TouchableOpacity
-            style={[styles.deliveryAddressContainer, { flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' }]}
-            onPress={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
-          >
-            <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-              <Ionicons name="storefront-outline" size={16} color={primaryColor} />
-              <Text style={[styles.deliveryAddressText, { textAlign: isRTL ? 'right' : 'left', color: '#1E293B', fontWeight: '600' }]} numberOfLines={1}>
-                {getText('الفرع:', 'Branch:')} {selectedBranch || branches[0]?.branch_name || branches[0]?.name}
+  const renderMenuHeader = () => {
+    const matchedBranch = branches?.find(
+      (b: any) =>
+        b.branch_name === selectedBranch ||
+        b.name === selectedBranch ||
+        b.id === selectedBranch
+    );
+    const activeBranchLabel =
+      matchedBranch?.branch_name ||
+      matchedBranch?.name ||
+      selectedBranch ||
+      branches?.[0]?.branch_name ||
+      branches?.[0]?.name ||
+      getText('الفرع الرئيسي', 'Main Branch');
+
+    const displayRestaurantName =
+      restaurant?.restaurant_name ||
+      restaurant?.name ||
+      getText('أسماك المحيط', 'Asmak Al Mohit');
+
+    return (
+      <View style={styles.menuHeader}>
+        {/* 1. Top Pill-Shaped Location Selector ("التوصيل إلى / حدّد موقعك") */}
+        <TouchableOpacity
+          style={[styles.topLocationPill, { flexDirection: rtlRow }]}
+          onPress={() => setShowLocationModal(true)}
+          activeOpacity={0.88}
+        >
+          {/* Right Side: Vibrant Orange Pin + 2-Line Address Text */}
+          <View style={[styles.topLocationRightGroup, { flexDirection: rtlRow }]}>
+            <View style={styles.topLocationPinWrap}>
+              <Svg width={25} height={31} viewBox="0 0 26 32">
+                <Path
+                  d="M 13,1 C 6.4,1 1,6.3 1,12.9 C 1,21.4 11.4,30.2 12.2,30.9 C 12.7,31.3 13.3,31.3 13.8,30.9 C 14.6,30.2 25,21.4 25,12.9 C 25,6.3 19.6,1 13,1 Z"
+                  fill={ACCENT_ORANGE}
+                />
+                <Circle cx="13" cy="12.5" r="4.3" fill={BG_WARM} />
+              </Svg>
+            </View>
+            <View style={{ flex: 1, alignItems: alignReadingStart }}>
+              <Text style={[styles.topLocationSmallLabel, { textAlign: isRTL ? 'right' : 'left' }]}>
+                {getText('التوصيل إلى', 'Deliver to')}
+              </Text>
+              <Text
+                style={[styles.topLocationMainText, { textAlign: isRTL ? 'right' : 'left' }]}
+                numberOfLines={1}
+              >
+                {deliveryAddress || getText('حدّد موقعك', 'Select Location')}
               </Text>
             </View>
-            {branches.length > 1 && (
-              <Ionicons name={isBranchDropdownOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#64748B" />
-            )}
-          </TouchableOpacity>
+          </View>
 
-          {isBranchDropdownOpen && branches.length > 1 && (
-            <View style={{ backgroundColor: '#FFFFFF', borderRadius: 10, marginTop: 4, borderWidth: 1, borderColor: '#E2E8F0', padding: 4, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 }}>
-              {branches.map((b: any) => {
-                const bName = b.branch_name || b.name;
-                const isSel = selectedBranch === bName || selectedBranch === b.id;
-                return (
-                  <TouchableOpacity
-                    key={b.id || bName}
-                    style={{
-                      flexDirection: isRTL ? 'row-reverse' : 'row',
-                      alignItems: 'center',
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      borderRadius: 8,
-                      backgroundColor: isSel ? '#EEF2FF' : 'transparent',
-                      gap: 8,
-                    }}
-                    onPress={() => {
-                      setSelectedBranch(bName);
-                      setIsBranchDropdownOpen(false);
-                    }}
-                  >
-                    <Ionicons name={isSel ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={isSel ? primaryColor : '#94A3AF'} />
-                    <Text style={{ fontSize: 13, color: isSel ? primaryColor : '#334155', fontWeight: isSel ? '700' : '400' }}>
-                      {bName}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+          {/* Left Side: Downward Chevron */}
+          <Ionicons name="chevron-down" size={22} color={TEXT_TEAL_DARK} />
+        </TouchableOpacity>
+
+        {/* 2. Organic Wavy Promo Carousel + Pagination Dots */}
+        {renderOrganicPromoBanner()}
+
+        {/* 3. Restaurant Info Row (Below Banner: Circular Logo on Right, Divider, Name & Rating on Left) */}
+        <View style={[styles.brandingHeader, { flexDirection: rtlRow }]}>
+          <View style={styles.brandingLogoRing}>
+            <Image
+              source={
+                restaurant?.logo_url
+                  ? { uri: restaurant.logo_url }
+                  : require('../../assets/store-logo.jpeg')
+              }
+              style={styles.brandingLogoImage}
+              resizeMode="cover"
+            />
+          </View>
+
+          <View style={styles.brandingVerticalDivider} />
+
+          <View style={[styles.brandingInfo, { alignItems: alignReadingStart }]}>
+            <Text
+              style={[styles.brandingTitle, { textAlign: isRTL ? 'right' : 'left' }]}
+              numberOfLines={1}
+            >
+              {displayRestaurantName}
+            </Text>
+            <View style={[styles.brandingMetaRow, { flexDirection: rtlRow }]}>
+              <Ionicons name="star" size={17} color={STAR_GOLD} />
+              <Text style={styles.brandingRatingValue}>4.8</Text>
+              <Text style={styles.brandingSubtitle}>
+                {`• ${getText('مفتوح', 'Open')} • 30 ${getText('دقيقة', 'mins')}`}
+              </Text>
             </View>
+          </View>
+        </View>
+
+        {/* 4. Full-Width Soft Mint Pill Search Bar */}
+        <View style={[styles.searchBarContainer, { flexDirection: rtlRow }]}>
+          <Ionicons name="search-outline" size={22} color={TEXT_TEAL_DARK} />
+          <TextInput
+            style={[styles.searchInput, { textAlign: isRTL ? 'right' : 'left' }]}
+            value={menuSearchQuery}
+            onChangeText={setMenuSearchQuery}
+            placeholder={getText('ابحث عن طبقك المفضل', 'Search for your favorite dish')}
+            placeholderTextColor="#4F7779"
+          />
+          {menuSearchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setMenuSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={19} color={TEXT_TEAL_MUTED} />
+            </TouchableOpacity>
           )}
         </View>
-      )}
 
-    </View>
-  );
+        {/* 5. Side-by-Side Pill Containers: Order Type Toggle (Right) + Divider + Branch Selector (Left) */}
+        <View style={[styles.actionPillsRow, { flexDirection: rtlRow }]}>
+          {/* Right Pill: Delivery / Pickup Toggle */}
+          <View style={[styles.orderTypePillContainer, { flexDirection: rtlRow }]}>
+            <TouchableOpacity
+              style={[
+                styles.orderTypeSegment,
+                { flexDirection: rtlRow },
+                deliveryMode === 'delivery' && [
+                  styles.orderTypeSegmentActive,
+                  { backgroundColor: primaryColor },
+                ],
+              ]}
+              onPress={() => setDeliveryMode('delivery')}
+              activeOpacity={0.9}
+            >
+              <Ionicons
+                name="car"
+                size={18}
+                color={deliveryMode === 'delivery' ? '#FFFFFF' : TEXT_TEAL_DARK}
+              />
+              <Text
+                style={[
+                  styles.orderTypeSegmentText,
+                  deliveryMode === 'delivery' && styles.orderTypeSegmentTextActive,
+                ]}
+              >
+                {getText('توصيل', 'Delivery')}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.orderTypeSegment,
+                { flexDirection: rtlRow },
+                deliveryMode === 'pickup' && [
+                  styles.orderTypeSegmentActive,
+                  { backgroundColor: primaryColor },
+                ],
+              ]}
+              onPress={() => setDeliveryMode('pickup')}
+              activeOpacity={0.9}
+            >
+              <Ionicons
+                name="storefront"
+                size={17}
+                color={deliveryMode === 'pickup' ? '#FFFFFF' : TEXT_TEAL_DARK}
+              />
+              <Text
+                style={[
+                  styles.orderTypeSegmentText,
+                  deliveryMode === 'pickup' && styles.orderTypeSegmentTextActive,
+                ]}
+              >
+                {getText('استلام', 'Pickup')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Subtle Vertical Divider Between Pills */}
+          <View style={styles.actionPillsDivider} />
+
+          {/* Left Pill: Branch Selector Dropdown */}
+          <TouchableOpacity
+            style={[styles.branchPillContainer, { flexDirection: rtlRow }]}
+            onPress={() => {
+              if (branches && branches.length > 0) {
+                setIsBranchDropdownOpen(!isBranchDropdownOpen);
+              }
+            }}
+            activeOpacity={0.85}
+          >
+            <View style={{ flexDirection: rtlRow, alignItems: 'center', gap: 6, flex: 1 }}>
+              <Ionicons name="storefront-outline" size={18} color={TEXT_TEAL_DARK} />
+              <Text
+                style={[styles.branchPillText, { textAlign: isRTL ? 'right' : 'left' }]}
+                numberOfLines={1}
+              >
+                {activeBranchLabel}
+              </Text>
+            </View>
+            <Ionicons
+              name={isBranchDropdownOpen ? 'chevron-up' : 'chevron-down'}
+              size={17}
+              color={TEXT_TEAL_DARK}
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* Expandable Dynamic Branch Dropdown List (from Supabase branches) */}
+        {isBranchDropdownOpen && branches && branches.length > 0 && (
+          <View style={styles.branchDropdownCard}>
+            {branches.map((b: any) => {
+              const bName = b.branch_name || b.name;
+              const isSel = selectedBranch === bName || selectedBranch === b.id;
+              return (
+                <TouchableOpacity
+                  key={b.id || bName}
+                  style={[
+                    styles.branchDropdownOption,
+                    { flexDirection: rtlRow },
+                    isSel && { backgroundColor: PILL_MINT },
+                  ]}
+                  onPress={() => {
+                    setSelectedBranch(bName);
+                    setIsBranchDropdownOpen(false);
+                  }}
+                >
+                  <Ionicons
+                    name={isSel ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={18}
+                    color={isSel ? primaryColor : TEXT_TEAL_MUTED}
+                  />
+                  <Text
+                    style={{
+                      flex: 1,
+                      fontSize: 14,
+                      color: isSel ? primaryColor : TEXT_TEAL_DARK,
+                      fontWeight: isSel ? '800' : '600',
+                      textAlign: isRTL ? 'right' : 'left',
+                    }}
+                  >
+                    {bName}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   // FINAL CONDITIONAL RETURNS - Must be after all hooks and functions
-  if (!isAppReady) {
+  if (!isAppReady || !hasCheckedInitialSession) {
+    return <AnimatedSplashScreen onFinish={handleSplashFinish} />;
+  }
+
+  if (!session && !isGuestBrowsing) {
     return (
-      <View style={styles.splashContainer}>
-        <View style={styles.splashContent}>
-          <Ionicons name="restaurant" size={80} color={primaryColor} />
-          <Text style={styles.splashText}>{restaurant?.restaurant_name || restaurant?.name || 'مطعم'}</Text>
-          <ActivityIndicator size="large" color={primaryColor} style={styles.splashLoader} />
-        </View>
-      </View>
+      <LoginScreen
+        initialName={customerName}
+        initialPhone={customerPhone ? normalizePhone(customerPhone) : ''}
+        onContinueAsGuest={() => setIsGuestBrowsing(true)}
+        onLoginSuccess={(mockSession) => {
+          if (mockSession) {
+            setSession(mockSession as any);
+            if (mockSession.user) {
+              if (!customerPhone) {
+                setCustomerPhone(mockSession.user.phone?.replace('+966', '0') || '');
+              }
+              if (!customerName && mockSession.user.user_metadata?.name) {
+                setCustomerName(mockSession.user.user_metadata.name);
+              }
+            }
+          }
+          setIsGuestBrowsing(true);
+        }}
+      />
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
 
-      {/* Tab Content */}
-      <View style={styles.tabContent}>
-        {activeTab === 'menu' && (
-          <>
-            {renderMenuHeader()}
-            {renderMenuTab()}
-          </>
-        )}
-        {activeTab === 'offers' && renderOffersTab()}
-        {activeTab === 'orders' && renderOrdersTab()}
-        {activeTab === 'more' && renderMoreTab()}
-      </View>
+      <View
+        style={[
+          styles.mobileAppShell,
+          Platform.OS === 'web' && windowWidth > 540 && styles.mobileAppShellDesktop,
+        ]}
+      >
+        {/* Tab Content */}
+        <View style={styles.tabContent}>
+          {activeTab === 'menu' && renderMenuTab()}
+          {activeTab === 'offers' && renderOffersTab()}
+          {activeTab === 'orders' && renderOrdersTab()}
+          {activeTab === 'more' && renderMoreTab()}
+        </View>
 
-      {/* Bottom Navigation Bar */}
-      <View style={[styles.bottomNav, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-        {renderBottomNavItem('menu', 'restaurant', 'القائمة', 'Menu')}
-        {renderBottomNavItem('offers', 'pricetag', 'العروض', 'Offers')}
-        {renderBottomNavItem('orders', 'receipt', 'الطلبات', 'Orders')}
-        {renderBottomNavItem('more', 'grid', 'المزيد', 'More')}
+        {/* Floating Bottom Navigation Bar (Material Expressive Pill Bar, No Top Border) */}
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.bottomNavFloatingWrapper,
+            { paddingBottom: Math.max(insets.bottom, 10) },
+          ]}
+        >
+          <View style={[styles.bottomNav, { flexDirection: rtlRow }]}>
+            {renderBottomNavItem('menu', 'restaurant', 'القائمة', 'Menu')}
+            {renderBottomNavItem('offers', 'pricetag', 'العروض', 'Offers')}
+            {renderBottomNavItem('orders', 'receipt', 'الطلبات', 'Orders')}
+            {renderBottomNavItem('more', 'grid', 'المزيد', 'More')}
+          </View>
+        </View>
       </View>
 
       {/* Location Modal */}
@@ -4284,6 +4764,11 @@ export default function CustomerScreen() {
         <LoginScreen 
           initialName={customerName}
           initialPhone={customerPhone ? normalizePhone(customerPhone) : ''} 
+          onContinueAsGuest={() => {
+            setIsGuestBrowsing(true);
+            setShowAuthModal(false);
+            setResumeCheckout(false);
+          }}
           onLoginSuccess={(mockSession) => {
             if (mockSession) {
               setSession(mockSession as any);
@@ -4504,22 +4989,57 @@ export default function CustomerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: BG_WARM,
+  },
+  mobileAppShell: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: BG_WARM,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  mobileAppShellDesktop: {
+    maxWidth: 460,
+    alignSelf: 'center',
+    shadowColor: '#053B3F',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 28,
+    elevation: 6,
+  },
+  menuScrollRoot: {
+    flex: 1,
+  },
+  menuScrollContent: {
+    paddingBottom: 128,
+    position: 'relative',
+  },
+  bgDecorTopRight: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    zIndex: 0,
+  },
+  bgDecorMidLeft: {
+    position: 'absolute',
+    top: 292,
+    left: 0,
+    zIndex: 0,
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: BG_WARM,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#6C757D',
+    color: TEXT_TEAL_MUTED,
   },
   errorContainer: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: BG_WARM,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -4532,7 +5052,7 @@ const styles = StyleSheet.create({
   retryButton: {
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 999,
   },
   retryButtonText: {
     color: '#FFFFFF',
@@ -4540,73 +5060,280 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   menuHeader: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 4,
+    zIndex: 2,
+  },
+  topLocationPill: {
+    backgroundColor: PILL_MINT,
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    minHeight: 60,
+  },
+  topLocationRightGroup: {
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  topLocationPinWrap: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  topLocationSmallLabel: {
+    fontSize: 12.5,
+    color: '#2B5B5E',
+    fontWeight: '600',
+    marginBottom: 1,
+  },
+  topLocationMainText: {
+    fontSize: 17.5,
+    color: TEXT_TEAL_DARK,
+    fontWeight: '800',
+  },
+  organicBannerSection: {
+    width: '100%',
+    marginBottom: 10,
+  },
+  organicBannerTextOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: 22,
+    left: '26%',
+    justifyContent: 'center',
+    gap: 10,
+    paddingBottom: 4,
+  },
+  organicBannerHeadline: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    textAlign: 'right',
+    letterSpacing: 0.2,
+  },
+  organicBannerSubtitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#D4F2EE',
+    textAlign: 'right',
+    marginTop: -4,
+  },
+  organicBannerCtaPill: {
+    backgroundColor: ACCENT_ORANGE,
+    borderRadius: 999,
+    paddingHorizontal: 26,
+    paddingVertical: 9,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  organicBannerCtaText: {
+    color: '#FFFFFF',
+    fontSize: 15.5,
+    fontWeight: '800',
+  },
+  bannerPaginationRow: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 7,
+    marginBottom: 4,
+  },
+  bannerDot: {
+    width: 8.5,
+    height: 8.5,
+    borderRadius: 5,
   },
   brandingHeader: {
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 20,
-    marginTop: 8,
+    marginTop: 2,
+    marginBottom: 16,
+  },
+  brandingLogoRing: {
+    width: 86,
+    height: 86,
+    borderRadius: 43,
+    borderWidth: 2.5,
+    borderColor: '#76C3B9',
+    backgroundColor: '#FFFFFF',
+    padding: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#053B3F',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  brandingLogoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 40,
+  },
+  brandingVerticalDivider: {
+    width: 1.5,
+    height: 46,
+    backgroundColor: '#DCE2DE',
+    marginHorizontal: 14,
+    borderRadius: 1,
   },
   brandingLogoPlaceholder: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderWidth: 2,
+    borderColor: '#76C3B9',
   },
   brandingInfo: {
     flex: 1,
+    justifyContent: 'center',
   },
   brandingTitle: {
-    fontSize: 22,
+    fontSize: 26,
+    fontWeight: '900',
+    color: TEXT_TEAL_DARK,
+    marginBottom: 5,
+  },
+  brandingMetaRow: {
+    alignItems: 'center',
+    gap: 5,
+  },
+  brandingRatingValue: {
+    fontSize: 15,
     fontWeight: '800',
-    color: '#1E293B',
-    marginBottom: 4,
+    color: TEXT_TEAL_DARK,
   },
   brandingSubtitle: {
-    fontSize: 14,
-    color: '#64748B',
-    fontWeight: '500',
+    fontSize: 14.5,
+    color: '#2F5558',
+    fontWeight: '600',
   },
   searchBarContainer: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    backgroundColor: PILL_MINT,
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    height: 48,
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 20,
+    gap: 10,
+    marginBottom: 12,
   },
   searchInput: {
     flex: 1,
-    fontSize: 15,
-    color: '#1E293B',
-    fontWeight: '500',
+    fontSize: 15.5,
+    color: TEXT_TEAL_DARK,
+    fontWeight: '600',
+    paddingVertical: 0,
+  },
+  actionPillsRow: {
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  orderTypePillContainer: {
+    flex: 1.18,
+    backgroundColor: PILL_MINT,
+    borderRadius: 999,
+    padding: 4,
+    height: 48,
+    alignItems: 'center',
+  },
+  orderTypeSegment: {
+    flex: 1,
+    height: 40,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+  },
+  orderTypeSegmentActive: {
+    shadowColor: '#053B3F',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.14,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  orderTypeSegmentText: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: TEXT_TEAL_DARK,
+  },
+  orderTypeSegmentTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  actionPillsDivider: {
+    width: 1.5,
+    height: 26,
+    backgroundColor: '#CBD8D4',
+    borderRadius: 1,
+  },
+  branchPillContainer: {
+    flex: 0.96,
+    backgroundColor: PILL_MINT,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4,
+  },
+  branchPillText: {
+    flex: 1,
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: TEXT_TEAL_DARK,
+  },
+  branchDropdownCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    marginTop: 2,
+    marginBottom: 10,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: PILL_MINT,
+    shadowColor: '#053B3F',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  branchDropdownOption: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    gap: 10,
   },
   deliveryAddressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: PILL_MINT,
+    borderRadius: 999,
     gap: 8,
   },
   deliveryAddressText: {
     flex: 1,
     fontSize: 14,
-    color: '#1E293B',
+    color: TEXT_TEAL_DARK,
   },
   deliveryToggle: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 30,
-    padding: 6,
+    backgroundColor: PILL_MINT,
+    borderRadius: 999,
+    padding: 5,
     marginBottom: 12,
   },
   toggleOption: {
@@ -4614,22 +5341,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 24,
+    paddingVertical: 10,
+    borderRadius: 999,
     gap: 8,
   },
   toggleOptionActive: {
-    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.1)',
-    elevation: 4,
+    elevation: 3,
   },
   toggleOptionText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontSize: 15,
+    fontWeight: '700',
+    color: TEXT_TEAL_DARK,
   },
   toggleOptionTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontWeight: '800',
   },
   branchList: {
     flex: 1,
@@ -4702,88 +5428,142 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   categoriesContainer: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
+    backgroundColor: 'transparent',
+    paddingVertical: 6,
+    marginBottom: 10,
+    zIndex: 2,
   },
   categoriesList: {
     paddingHorizontal: 16,
-    gap: 8,
+    gap: 10,
+  },
+  categoryPill: {
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 999,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  categoryPillActive: {
+    shadowColor: '#053B3F',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.14,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  categoryPillInactive: {
+    backgroundColor: PILL_MINT,
+  },
+  categoryPillText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  categoryPillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  categoryPillTextInactive: {
+    color: TEXT_TEAL_DARK,
+    fontWeight: '700',
   },
   categoryItem: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 30,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: PILL_MINT,
   },
   categoryItemActive: {
-    borderWidth: 0,
-    elevation: 6,
+    elevation: 3,
   },
   categoryText: {
     fontSize: 15,
-    fontWeight: '500',
-    color: '#4B5563',
+    fontWeight: '700',
+    color: TEXT_TEAL_DARK,
   },
   categoryTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontWeight: '800',
+  },
+  fromOurMenuHeader: {
+    paddingHorizontal: 16,
+    marginTop: 2,
+    marginBottom: 12,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  fromOurMenuTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: TEXT_TEAL_DARK,
+  },
+  fromOurMenuSplash: {
+    marginHorizontal: 4,
+    marginTop: -8,
+  },
+  menuCardsWrapper: {
+    paddingHorizontal: 16,
+    zIndex: 2,
   },
   menuContainer: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 8,
   },
   menuContent: {
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
   emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 44,
+    backgroundColor: CARD_MINT,
+    borderRadius: 24,
   },
   emptyText: {
-    fontSize: 16,
-    color: '#6C757D',
+    fontSize: 15.5,
+    fontWeight: '700',
+    color: TEXT_TEAL_MUTED,
   },
   menuItem: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    marginBottom: 16,
-    padding: 20,
+    backgroundColor: CARD_MINT,
+    borderRadius: 26,
+    marginBottom: 14,
+    padding: 12,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    boxShadow: '0px 2px 10px rgba(0, 0, 0, 0.04)',
-    elevation: 2,
+    gap: 12,
   },
   menuItemImageContainer: {
-    width: 90,
-    height: 90,
-    borderRadius: 14,
-    backgroundColor: '#F8FAFC',
+    width: 106,
+    height: 106,
+    borderRadius: 20,
+    backgroundColor: CARD_IMAGE_MINT,
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
     position: 'relative',
   },
   menuItemImage: {
     width: '100%',
     height: '100%',
   },
+  menuItemPlaceholderBox: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+    padding: 6,
+  },
+  menuItemPlaceholderText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#356968',
+  },
   discountTagPill: {
     position: 'absolute',
     top: 6,
-    backgroundColor: '#EF4444',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    backgroundColor: ACCENT_ORANGE,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.15,
@@ -4792,55 +5572,105 @@ const styles = StyleSheet.create({
     zIndex: 3,
   },
   discountTagPillInline: {
-    backgroundColor: '#EF4444',
-    paddingHorizontal: 7,
+    backgroundColor: ACCENT_ORANGE,
+    paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
   },
   discountTagPillText: {
     color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: '800',
     letterSpacing: 0.2,
   },
   menuItemContent: {
     flex: 1,
+    justifyContent: 'center',
+    paddingVertical: 2,
   },
   menuItemTitle: {
-    fontSize: 15.5,
-    fontWeight: '700',
-    color: '#1E293B',
+    fontSize: 17.5,
+    fontWeight: '800',
+    color: TEXT_TEAL_DARK,
     marginBottom: 4,
   },
   menuItemDescription: {
-    fontSize: 12.5,
-    color: '#64748B',
-    lineHeight: 18,
+    fontSize: 13,
+    color: TEXT_TEAL_MUTED,
+    lineHeight: 19,
     marginBottom: 8,
   },
   menuItemPrice: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 4,
+    fontSize: 17,
+    fontWeight: '800',
+    marginTop: 2,
   },
   discountedPriceText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#10B981',
+    fontSize: 17,
+    fontWeight: '800',
   },
   originalPriceStrikethrough: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#9CA3AF',
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#789596',
     textDecorationLine: 'line-through',
+  },
+  menuItemActionZone: {
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    paddingBottom: 6,
+    paddingHorizontal: 2,
+  },
+  expressiveAddButton: {
+    width: 56,
+    height: 42,
+    borderRadius: 21,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#053B3F',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  expressiveCounterContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingHorizontal: 5,
+    paddingVertical: 4,
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+  },
+  expressiveCounterBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  expressiveCounterMinusBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: PILL_MINT,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  expressiveCounterText: {
+    fontSize: 15,
+    fontWeight: '800',
+    minWidth: 16,
+    textAlign: 'center',
   },
   quantitySelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 24,
+    backgroundColor: PILL_MINT,
+    borderRadius: 999,
     padding: 4,
     gap: 12,
   },
@@ -4851,7 +5681,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.1)',
     elevation: 2,
   },
   quantityText: {
@@ -4859,25 +5688,28 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     minWidth: 20,
     textAlign: 'center',
-    color: '#1F2937',
+    color: TEXT_TEAL_DARK,
   },
   floatingCartFab: {
     position: 'absolute',
-    bottom: 90,
-    left: 20,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    bottom: 96,
+    left: 18,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     justifyContent: 'center',
     alignItems: 'center',
-    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.3)',
+    shadowColor: '#053B3F',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
     elevation: 8,
-    zIndex: 10,
+    zIndex: 15,
   },
   floatingCartFabBadge: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 8,
+    right: 8,
     backgroundColor: '#FFFFFF',
     minWidth: 20,
     height: 20,
@@ -4885,16 +5717,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.2)',
     elevation: 4,
   },
   floatingCartFabBadgeText: {
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   offersContainer: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: BG_WARM,
   },
   toggleContainer: {
     backgroundColor: '#FFFFFF',
@@ -4920,13 +5751,15 @@ const styles = StyleSheet.create({
   offersContent: {
     flex: 1,
     paddingHorizontal: 16,
+    paddingBottom: 110,
   },
   offersSection: {
     gap: 16,
+    paddingBottom: 110,
   },
   offerCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -4938,23 +5771,23 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 999,
     marginBottom: 12,
   },
   offerBadgeText: {
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   offerTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#1E293B',
+    color: TEXT_TEAL_DARK,
     marginBottom: 4,
   },
   offerDescription: {
     fontSize: 14,
-    color: '#64748B',
+    color: TEXT_TEAL_MUTED,
     marginBottom: 8,
   },
   offerValidity: {
@@ -4963,10 +5796,11 @@ const styles = StyleSheet.create({
   },
   codesSection: {
     gap: 16,
+    paddingBottom: 110,
   },
   codeCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -4977,60 +5811,57 @@ const styles = StyleSheet.create({
   codeTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1E293B',
+    color: TEXT_TEAL_DARK,
     marginBottom: 12,
   },
   codeInput: {
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
+    backgroundColor: CARD_MINT,
+    borderRadius: 12,
     padding: 12,
     marginBottom: 8,
   },
   codeText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#1E293B',
+    color: TEXT_TEAL_DARK,
     fontFamily: 'monospace',
   },
   copyButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: 999,
   },
   copyButtonText: {
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   codeDescription: {
     fontSize: 12,
-    color: '#64748B',
+    color: TEXT_TEAL_MUTED,
   },
   ordersContainer: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: BG_WARM,
     padding: 16,
+    paddingBottom: 110,
   },
   ordersTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1E293B',
+    fontWeight: '800',
+    color: TEXT_TEAL_DARK,
     marginBottom: 16,
   },
   ordersContent: {
     gap: 16,
+    paddingBottom: 110,
   },
   orderCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    backgroundColor: CARD_MINT,
+    borderRadius: 20,
     padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
   },
   orderHeader: {
     justifyContent: 'space-between',
@@ -5040,7 +5871,7 @@ const styles = StyleSheet.create({
   orderNumber: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#1E293B',
+    color: TEXT_TEAL_DARK,
   },
   orderStatus: {
     fontSize: 14,
@@ -5048,127 +5879,151 @@ const styles = StyleSheet.create({
   },
   orderDate: {
     fontSize: 12,
-    color: '#64748B',
+    color: TEXT_TEAL_MUTED,
     marginBottom: 8,
   },
   orderItems: {
     fontSize: 14,
-    color: '#1E293B',
+    color: TEXT_TEAL_DARK,
     marginBottom: 4,
   },
   orderTotal: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#1E293B',
+    color: TEXT_TEAL_DARK,
   },
   moreContainer: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: BG_WARM,
+    paddingBottom: 100,
   },
   sectionTitle: {
     fontSize: 22,
-    fontWeight: 'bold',
-    color: '#1E293B',
+    fontWeight: '800',
+    color: TEXT_TEAL_DARK,
     marginHorizontal: 16,
     marginTop: 16,
     marginBottom: 8,
   },
   premiumToggleContainer: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
+    backgroundColor: PILL_MINT,
+    borderRadius: 999,
     padding: 4,
     width: 140,
   },
   premiumToggleButton: {
     flex: 1,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },
   premiumToggleText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#64748B',
+    fontWeight: '700',
+    color: TEXT_TEAL_DARK,
   },
   premiumToggleTextActive: {
     color: '#FFFFFF',
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   socialIcons: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 24,
-    paddingVertical: 24,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
+    paddingVertical: 20,
+    backgroundColor: 'transparent',
   },
   socialButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: PILL_MINT,
     justifyContent: 'center',
     alignItems: 'center',
   },
   settingsList: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 12,
   },
   settingItem: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: CARD_MINT,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
   },
   settingText: {
     flex: 1,
     fontSize: 16,
-    color: '#1E293B',
+    fontWeight: '600',
+    color: TEXT_TEAL_DARK,
     marginHorizontal: 12,
   },
   footer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
     paddingVertical: 16,
+    paddingBottom: 96,
     alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#E9ECEF',
   },
   footerText: {
     fontSize: 12,
-    color: '#94A3B8',
+    color: TEXT_TEAL_MUTED,
+  },
+  bottomNavFloatingWrapper: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 14,
+    backgroundColor: 'transparent',
+    zIndex: 20,
   },
   bottomNav: {
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderColor: '#E5E7EB',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
-    justifyContent: 'space-around',
-    boxShadow: '0px -4px 10px rgba(0, 0, 0, 0.05)',
+    backgroundColor: NAV_MINT,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 0,
+    shadowColor: '#053B3F',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  bottomNavActivePill: {
+    borderRadius: 999,
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    minWidth: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  bottomNavActiveText: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   bottomNavItem: {
+    flex: 1,
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    paddingVertical: 6,
+    gap: 3,
   },
   bottomNavText: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
+    fontSize: 12.5,
+    color: TEXT_TEAL_DARK,
+    fontWeight: '700',
   },
   // Splash Screen Styles
   splashContainer: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: BG_WARM,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -5177,8 +6032,8 @@ const styles = StyleSheet.create({
   },
   splashText: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1E293B',
+    fontWeight: '800',
+    color: TEXT_TEAL_DARK,
     marginTop: 16,
     marginBottom: 24,
   },
