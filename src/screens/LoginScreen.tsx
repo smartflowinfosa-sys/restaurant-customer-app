@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Platform,
   I18nManager,
   useWindowDimensions,
+  Animated,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -47,6 +48,103 @@ const OCEAN_TURQUOISE_LIGHT = '#6AD0DA';
 
 const ASMAK_LOGO_CIRCLE = require('../../assets/asmak-logo-circle.png');
 
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
+const RATE_LIMIT_ERROR_MESSAGE =
+  'تجاوزت الحد المسموح من المحاولات. الرجاء المحاولة بعد 10 دقائق.';
+
+const RATE_LIMIT_ERROR_CODES = new Set([
+  'over_request_rate_limit',
+  'over_sms_send_rate_limit',
+  'over_email_send_rate_limit',
+  'too_many_requests',
+]);
+
+/** Detects HTTP 429 and Supabase Auth rate-limit error signatures. */
+function isSupabaseRateLimitError(err: any): boolean {
+  if (!err) return false;
+  const status = Number(err.status ?? err.statusCode);
+  if (status === 429) return true;
+
+  const code = String(err.code ?? '').toLowerCase();
+  if (RATE_LIMIT_ERROR_CODES.has(code)) return true;
+
+  const text = `${err.name ?? ''} ${err.message ?? ''} ${
+    typeof err === 'string' ? err : ''
+  }`.toLowerCase();
+  return /too many requests|rate[_ ]?limit|only request this after|too many attempts|limit exceeded|\b429\b/.test(
+    text
+  );
+}
+
+/** Maps Supabase Auth errors into user-friendly Arabic messages. */
+function mapSupabaseAuthError(
+  err: any,
+  action: 'send_otp' | 'verify_otp'
+): { message: string; isRateLimit: boolean } {
+  if (isSupabaseRateLimitError(err)) {
+    return { message: RATE_LIMIT_ERROR_MESSAGE, isRateLimit: true };
+  }
+
+  const code = String(err?.code ?? '').toLowerCase();
+  const rawMsg = String(err?.message ?? '').toLowerCase();
+
+  if (
+    code === 'phone_provider_disabled' ||
+    code === 'provider_disabled' ||
+    rawMsg.includes('unsupported phone provider') ||
+    rawMsg.includes('phone logins are disabled')
+  ) {
+    return { message: 'خدمة تسجيل الدخول معطلة حالياً من الخادم.', isRateLimit: false };
+  }
+
+  if (code === 'otp_expired' || rawMsg.includes('expired')) {
+    return {
+      message: 'انتهت صلاحية رمز التحقق، يرجى طلب رمز جديد.',
+      isRateLimit: false,
+    };
+  }
+
+  if (code === 'sms_send_failed' || rawMsg.includes('sms_send_failed')) {
+    return {
+      message: 'تعذر إرسال رسالة التحقق النصية حالياً، يرجى المحاولة بعد قليل.',
+      isRateLimit: false,
+    };
+  }
+
+  if (
+    code === 'request_timeout' ||
+    err?.name === 'AuthRetryableFetchError' ||
+    rawMsg.includes('failed to fetch') ||
+    rawMsg.includes('network') ||
+    rawMsg.includes('timeout')
+  ) {
+    return {
+      message: 'تعذر الاتصال بالخادم، يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.',
+      isRateLimit: false,
+    };
+  }
+
+  if (
+    action === 'verify_otp' &&
+    (code === 'invalid_credentials' ||
+      code === 'validation_failed' ||
+      rawMsg.includes('invalid') ||
+      rawMsg.includes('token') ||
+      rawMsg.includes('otp'))
+  ) {
+    return {
+      message: 'رمز التحقق غير صحيح، يرجى التأكد والمحاولة مرة أخرى.',
+      isRateLimit: false,
+    };
+  }
+
+  const fallback =
+    action === 'send_otp'
+      ? 'حدث خطأ أثناء إرسال الرمز، يرجى المحاولة لاحقاً.'
+      : 'الرمز غير صحيح، يرجى المحاولة مرة أخرى.';
+  return { message: err?.message || fallback, isRateLimit: false };
+}
+
 export interface LoginScreenProps {
   onLoginSuccess?: (mockSession?: any) => void;
   onContinueAsGuest?: () => void;
@@ -74,9 +172,107 @@ export default function LoginScreen({
   const [phone, setPhone] = useState(initialPhone);
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const [errors, setErrors] = useState<{ phone?: string; form?: string }>({});
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'error' | 'success';
+  } | null>(null);
+
+  const isMountedRef = useRef(true);
+  // Synchronous mutex guarantees zero duplicate API calls even on sub-millisecond double taps
+  const isSubmittingRef = useRef(false);
+  const cooldownEndAtRef = useRef(0);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastAnimY = useRef(new Animated.Value(-96)).current;
+  const toastAnimOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Tick resend cooldown using wall-clock expiry so backgrounded apps stay accurate
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((cooldownEndAtRef.current - Date.now()) / 1000));
+      setCooldownSeconds(remaining);
+      if (remaining === 0) {
+        clearInterval(interval);
+      }
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [cooldownSeconds > 0]);
+
+  const hideToast = useCallback(() => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    Animated.parallel([
+      Animated.timing(toastAnimY, {
+        toValue: -96,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(toastAnimOpacity, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      if (isMountedRef.current) {
+        setToast(null);
+      }
+    });
+  }, [toastAnimOpacity, toastAnimY]);
+
+  const showToast = useCallback(
+    (message: string, type: 'error' | 'success' = 'error') => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+
+      setToast({ message, type });
+      toastAnimY.setValue(-96);
+      toastAnimOpacity.setValue(0);
+
+      Animated.parallel([
+        Animated.spring(toastAnimY, {
+          toValue: 0,
+          tension: 70,
+          friction: 10,
+          useNativeDriver: true,
+        }),
+        Animated.timing(toastAnimOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      toastTimerRef.current = setTimeout(() => {
+        hideToast();
+      }, type === 'error' ? 6000 : 3500);
+    },
+    [hideToast, toastAnimOpacity, toastAnimY]
+  );
+
+  const startResendCooldown = useCallback(() => {
+    cooldownEndAtRef.current = Date.now() + OTP_RESEND_COOLDOWN_SECONDS * 1000;
+    setCooldownSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+  }, []);
 
   // Responsive shell sizing (centered mobile frame on wide desktop web, full width on mobile)
   const isWideWeb = Platform.OS === 'web' && windowWidth > 540;
@@ -99,7 +295,10 @@ export default function LoginScreen({
     return clean;
   };
 
-  const handleSendOTP = async () => {
+  const requestOtp = async (isResend: boolean) => {
+    if (isSubmittingRef.current || isLoading || isResending) return;
+    if (isResend && cooldownSeconds > 0) return;
+
     setErrors({});
 
     const cleanPhone = normalizePhone(phone);
@@ -108,13 +307,24 @@ export default function LoginScreen({
       return;
     }
 
-    try {
+    isSubmittingRef.current = true;
+    if (isResend) {
+      setIsResending(true);
+    } else {
       setIsLoading(true);
+    }
 
+    try {
       // --- DEVELOPER BYPASS ---
       if (cleanPhone === '592150604') {
         await new Promise((resolve) => setTimeout(resolve, 800));
-        setStep(2);
+        if (!isMountedRef.current) return;
+        startResendCooldown();
+        if (isResend) {
+          showToast('تم إعادة إرسال رمز التحقق بنجاح', 'success');
+        } else {
+          setStep(2);
+        }
         return;
       }
       // ------------------------
@@ -125,21 +335,42 @@ export default function LoginScreen({
       });
 
       if (error) throw error;
+      if (!isMountedRef.current) return;
 
-      setStep(2);
+      startResendCooldown();
+      if (isResend) {
+        showToast('تم إعادة إرسال رمز التحقق بنجاح', 'success');
+      } else {
+        setStep(2);
+      }
     } catch (error: any) {
       console.error('OTP Error:', error);
-      let errorMessage = error.message || 'حدث خطأ أثناء إرسال الرمز، يرجى المحاولة لاحقاً.';
-      if (errorMessage.includes('Unsupported phone provider')) {
-        errorMessage = 'خدمة تسجيل الدخول معطلة حالياً من الخادم.';
+      if (!isMountedRef.current) return;
+
+      const { message, isRateLimit } = mapSupabaseAuthError(error, 'send_otp');
+      setErrors({ form: message });
+
+      if (isRateLimit) {
+        showToast(message, 'error');
+        if (isResend) {
+          startResendCooldown();
+        }
       }
-      setErrors({ form: errorMessage });
     } finally {
-      setIsLoading(false);
+      isSubmittingRef.current = false;
+      if (isMountedRef.current) {
+        setIsLoading(false);
+        setIsResending(false);
+      }
     }
   };
 
+  const handleSendOTP = () => requestOtp(false);
+  const handleResendOTP = () => requestOtp(true);
+
   const handleVerifyOtp = async () => {
+    if (isSubmittingRef.current || isLoading || isResending) return;
+
     setErrors({});
     const cleanedOtp = otp.trim();
 
@@ -149,27 +380,33 @@ export default function LoginScreen({
     }
 
     const cleanPhone = normalizePhone(phone);
+    isSubmittingRef.current = true;
+    setIsLoading(true);
 
     // --- DEVELOPER BYPASS ---
     if (cleanPhone === '592150604' && cleanedOtp === '123456') {
-      setIsLoading(true);
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      const mockSession = {
-        user: {
-          id: 'mock-dev-id',
-          phone: '+966592150604',
-          user_metadata: { name: initialName || '' },
-        },
-      };
-      setIsLoading(false);
-      if (onLoginSuccess) {
-        onLoginSuccess(mockSession);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        const mockSession = {
+          user: {
+            id: 'mock-dev-id',
+            phone: '+966592150604',
+            user_metadata: { name: initialName || '' },
+          },
+        };
+        if (onLoginSuccess) {
+          onLoginSuccess(mockSession);
+        }
+      } finally {
+        isSubmittingRef.current = false;
+        if (isMountedRef.current) {
+          setIsLoading(false);
+        }
       }
       return;
     }
     // ------------------------
 
-    setIsLoading(true);
     try {
       const formattedPhone = '+966' + cleanPhone;
       const { data, error } = await supabase.auth.verifyOtp({
@@ -179,6 +416,7 @@ export default function LoginScreen({
       });
 
       if (error) throw error;
+      if (!isMountedRef.current) return;
 
       if (data?.session) {
         if (onLoginSuccess) {
@@ -188,9 +426,19 @@ export default function LoginScreen({
         setErrors({ form: 'تعذر تسجيل الدخول، يرجى المحاولة مرة أخرى' });
       }
     } catch (err: any) {
-      setErrors({ form: err.message || 'الرمز غير صحيح' });
+      if (!isMountedRef.current) return;
+
+      const { message, isRateLimit } = mapSupabaseAuthError(err, 'verify_otp');
+      setErrors({ form: message });
+
+      if (isRateLimit) {
+        showToast(message, 'error');
+      }
     } finally {
-      setIsLoading(false);
+      isSubmittingRef.current = false;
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -217,6 +465,10 @@ export default function LoginScreen({
       ? { uri: restaurant.logo_url }
       : ASMAK_LOGO_CIRCLE;
 
+  const isBusy = isLoading || isResending;
+  const isResendDisabled = isBusy || cooldownSeconds > 0;
+  const isErrorToast = toast?.type === 'error';
+
   return (
     <View style={styles.outerViewport}>
       <StatusBar style="light" />
@@ -225,6 +477,57 @@ export default function LoginScreen({
         style={[styles.mobileShell, isWideWeb && styles.mobileShellDesktop]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        {/* Floating Material Expressive Toast / Alert Banner (Cross-Platform Web + Mobile) */}
+        {toast ? (
+          <Animated.View
+            style={[
+              styles.toastWrapper,
+              {
+                top: Math.max(insets.top + 12, 16),
+                opacity: toastAnimOpacity,
+                transform: [{ translateY: toastAnimY }],
+              },
+            ]}
+          >
+            <TouchableOpacity
+              activeOpacity={0.92}
+              onPress={hideToast}
+              style={[
+                styles.toastCard,
+                { flexDirection: I18nManager.isRTL ? 'row' : 'row-reverse' },
+                isErrorToast ? styles.toastCardError : styles.toastCardSuccess,
+              ]}
+            >
+              <View
+                style={[
+                  styles.toastIconBadge,
+                  isErrorToast ? styles.toastIconBadgeError : styles.toastIconBadgeSuccess,
+                ]}
+              >
+                <Ionicons
+                  name={isErrorToast ? 'warning-outline' : 'checkmark-circle-outline'}
+                  size={20}
+                  color={isErrorToast ? '#DC2626' : DARK_TEAL}
+                />
+              </View>
+              <Text
+                style={[
+                  styles.toastMessageText,
+                  fontSemiBold,
+                  isErrorToast ? styles.toastTextError : styles.toastTextSuccess,
+                ]}
+              >
+                {toast.message}
+              </Text>
+              <Ionicons
+                name="close"
+                size={18}
+                color={isErrorToast ? '#B91C1C' : '#5B7B7C'}
+              />
+            </TouchableOpacity>
+          </Animated.View>
+        ) : null}
+
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
@@ -332,7 +635,12 @@ export default function LoginScreen({
 
             {/* Error Banner */}
             {errors.form ? (
-              <View style={styles.errorBannerPill}>
+              <View
+                style={[
+                  styles.errorBannerPill,
+                  { flexDirection: I18nManager.isRTL ? 'row' : 'row-reverse' },
+                ]}
+              >
                 <Ionicons name="alert-circle-outline" size={18} color="#DC2626" />
                 <Text style={[styles.errorBannerText, fontSemiBold]}>{errors.form}</Text>
               </View>
@@ -363,6 +671,7 @@ export default function LoginScreen({
                     placeholder="رقم الجوال"
                     placeholderTextColor={PLACEHOLDER_TEAL_GRAY}
                     keyboardType="phone-pad"
+                    editable={!isBusy}
                     value={phone}
                     onFocus={() => setIsInputFocused(true)}
                     onBlur={() => setIsInputFocused(false)}
@@ -389,9 +698,9 @@ export default function LoginScreen({
 
                 {/* Large Pill-Shaped Primary Login Button (Soft Pastel Coral-Orange) */}
                 <TouchableOpacity
-                  style={[styles.loginPillButton, isLoading && styles.buttonDisabled]}
+                  style={[styles.loginPillButton, isBusy && styles.buttonDisabled]}
                   onPress={handleSendOTP}
-                  disabled={isLoading}
+                  disabled={isBusy}
                   activeOpacity={0.88}
                 >
                   {isLoading ? (
@@ -405,7 +714,7 @@ export default function LoginScreen({
                 <TouchableOpacity
                   style={styles.guestButton}
                   onPress={handleGuestPress}
-                  disabled={isLoading}
+                  disabled={isBusy}
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.guestButtonText, fontBold]}>المتابعة كزائر</Text>
@@ -430,6 +739,7 @@ export default function LoginScreen({
                     placeholder="• • • • • •"
                     placeholderTextColor="#7A9E9C"
                     keyboardType="number-pad"
+                    editable={!isBusy}
                     value={otp}
                     onFocus={() => setIsInputFocused(true)}
                     onBlur={() => setIsInputFocused(false)}
@@ -446,15 +756,50 @@ export default function LoginScreen({
 
                 {/* Large Pill-Shaped Confirm Button (Soft Pastel Coral-Orange) */}
                 <TouchableOpacity
-                  style={[styles.loginPillButton, isLoading && styles.buttonDisabled]}
+                  style={[styles.loginPillButton, isBusy && styles.buttonDisabled]}
                   onPress={handleVerifyOtp}
-                  disabled={isLoading}
+                  disabled={isBusy}
                   activeOpacity={0.88}
                 >
                   {isLoading ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
                     <Text style={[styles.loginPillButtonText, fontBold]}>تأكيد الدخول</Text>
+                  )}
+                </TouchableOpacity>
+
+                {/* Resend OTP Pill Button with 60-Second Cooldown Timer */}
+                <TouchableOpacity
+                  style={[
+                    styles.resendPillButton,
+                    { flexDirection: I18nManager.isRTL ? 'row' : 'row-reverse' },
+                    isResendDisabled && styles.resendPillButtonDisabled,
+                  ]}
+                  onPress={handleResendOTP}
+                  disabled={isResendDisabled}
+                  activeOpacity={0.8}
+                >
+                  {isResending ? (
+                    <ActivityIndicator size="small" color={DARK_TEAL} />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name={cooldownSeconds > 0 ? 'time-outline' : 'refresh-outline'}
+                        size={18}
+                        color={isResendDisabled ? PLACEHOLDER_TEAL_GRAY : DARK_TEAL}
+                      />
+                      <Text
+                        style={[
+                          styles.resendButtonText,
+                          fontSemiBold,
+                          isResendDisabled && styles.resendButtonTextDisabled,
+                        ]}
+                      >
+                        {cooldownSeconds > 0
+                          ? `إعادة إرسال الرمز بعد ${cooldownSeconds} ثانية`
+                          : 'إعادة إرسال الرمز'}
+                      </Text>
+                    </>
                   )}
                 </TouchableOpacity>
 
@@ -466,7 +811,7 @@ export default function LoginScreen({
                     setOtp('');
                     setErrors({});
                   }}
-                  disabled={isLoading}
+                  disabled={isBusy}
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.guestButtonText, fontSemiBold]}>تعديل رقم الجوال</Text>
@@ -658,15 +1003,39 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   buttonDisabled: {
-    opacity: 0.72,
+    opacity: 0.65,
   },
   loginPillButtonText: {
     color: '#FFFFFF',
     fontSize: 17.5,
   },
+  resendPillButton: {
+    marginTop: 14,
+    minHeight: 44,
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: SOFT_MINT_SURFACE,
+    borderWidth: 1.5,
+    borderColor: '#76C3B9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  resendPillButtonDisabled: {
+    backgroundColor: '#EDF6F3',
+    borderColor: '#CBE6DF',
+  },
+  resendButtonText: {
+    color: DARK_TEAL,
+    fontSize: 14.5,
+  },
+  resendButtonTextDisabled: {
+    color: PLACEHOLDER_TEAL_GRAY,
+  },
   guestButton: {
     backgroundColor: 'transparent',
-    marginTop: 16,
+    marginTop: 12,
     paddingVertical: 12,
     paddingHorizontal: 24,
     alignItems: 'center',
@@ -675,5 +1044,58 @@ const styles = StyleSheet.create({
   guestButtonText: {
     color: DARK_TEAL,
     fontSize: 16,
+  },
+  toastWrapper: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 100,
+    elevation: 16,
+  },
+  toastCard: {
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  toastCardError: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
+  },
+  toastCardSuccess: {
+    backgroundColor: SOFT_MINT_SURFACE,
+    borderColor: '#76C3B9',
+  },
+  toastIconBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toastIconBadgeError: {
+    backgroundColor: '#FEE2E2',
+  },
+  toastIconBadgeSuccess: {
+    backgroundColor: '#FFFFFF',
+  },
+  toastMessageText: {
+    flex: 1,
+    fontSize: 13.5,
+    lineHeight: 20,
+    textAlign: 'right',
+  },
+  toastTextError: {
+    color: '#991B1B',
+  },
+  toastTextSuccess: {
+    color: TEXT_TEAL_DARK,
   },
 });
