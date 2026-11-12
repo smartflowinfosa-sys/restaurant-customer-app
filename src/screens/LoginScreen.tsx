@@ -390,7 +390,7 @@ export default function LoginScreen({
         await new Promise((resolve) => setTimeout(resolve, 700));
         const mockSession = {
           user: {
-            id: 'mock-dev-id',
+            id: '00000000-0000-0000-0000-000000000000',
             phone: '+966592150604',
             user_metadata: { name: initialName || '' },
           },

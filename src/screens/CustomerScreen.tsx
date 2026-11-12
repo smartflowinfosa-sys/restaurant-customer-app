@@ -44,6 +44,7 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import LoginScreen from './LoginScreen';
 import AnimatedSplashScreen from '../components/AnimatedSplashScreen';
+import { CreditCard, PaymentConfig } from 'react-native-moyasar-sdk';
 
 const RESTAURANT_ID = TARGET_RESTAURANT_ID;
 
@@ -670,7 +671,9 @@ export default function CustomerScreen() {
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [discount, setDiscount] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'applepay' | 'mada' | 'card'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'applepay' | 'mada' | 'card'>('card');
+  const [isPaymentModalVisible, setIsPaymentModalVisible] = useState(false);
+  const [currentMoyasarOrder, setCurrentMoyasarOrder] = useState<any>(null);
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [selectedMeal, setSelectedMeal] = useState<any | null>(null);
   const [selectedSize, setSelectedSize] = useState<string>('وسط');
@@ -2293,6 +2296,365 @@ export default function CustomerScreen() {
     }
   };
 
+  const handlePayNow = async () => {
+    if (isSubmitting) return;
+
+    const showAlert = (title: string, message: string) => {
+      if (typeof window !== 'undefined' && (window as any).alert) {
+        (window as any).alert(`${title}\n\n${message}`);
+      } else {
+        RNAlert.alert(title, message, [{ text: 'حسناً' }]);
+      }
+    };
+
+    if (!session || !session.user) {
+      setIsCartModalVisible(false);
+      setResumeCheckout(true);
+      setTimeout(() => setShowAuthModal(true), 400);
+      return;
+    }
+
+    if (cart.length === 0) {
+      showAlert('السلة فارغة', 'الرجاء إضافة منتجات إلى السلة للمتابعة.');
+      return;
+    }
+
+    setNameError('');
+    setPhoneError('');
+    let hasError = false;
+
+    if (deliveryMode === 'pickup' && !selectedBranch) {
+      RNAlert.alert('تنبيه', 'الرجاء اختيار الفرع لاستلام الطلب', [{ text: 'حسناً' }]);
+      hasError = true;
+    }
+
+    const currentCustomerName = (customerName || session.user.user_metadata?.name || 'عميل').trim();
+    if (!currentCustomerName) {
+      setNameError('الرجاء إدخال الاسم بالكامل');
+      hasError = true;
+    }
+
+    const currentCustomerPhone = (customerPhone || session.user.phone?.replace('+966', '0') || '').trim();
+    const saudiPhoneRegex = /^05\d{8}$/;
+    if (!currentCustomerPhone || !saudiPhoneRegex.test(currentCustomerPhone)) {
+      setPhoneError('الرجاء إدخال رقم جوال سعودي صحيح يتكون من 10 أرقام ويبدأ بـ 05');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    try {
+      setIsSubmitting(true);
+
+      const subtotal = cart.reduce(
+        (sum, item) => sum + (getCartItemUnitPrice(item) * item.quantity),
+        0
+      );
+      const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
+      let grandTotal = Math.max(0, subtotal + deliveryFee - discount);
+      let amountPaidFromWallet = 0;
+      if (useWalletBalance && walletBalance > 0) {
+        amountPaidFromWallet = Math.min(grandTotal, walletBalance);
+        grandTotal = Math.max(0, grandTotal - amountPaidFromWallet);
+      }
+
+      const matchedBranch = branches.find(
+        (b: any) => b.branch_name === selectedBranch || b.id === selectedBranch
+      );
+      const branchName = deliveryMode === 'pickup'
+        ? (matchedBranch?.branch_name || selectedBranch)
+        : (branches && branches.length > 0 ? branches[0].branch_name : null);
+      const branchId = deliveryMode === 'pickup'
+        ? (matchedBranch?.id || null)
+        : (branches && branches.length > 0 ? branches[0].id : null);
+
+      const resolvedDeliveryAddress = deliveryMode === 'delivery'
+        ? (checkoutDeliveryAddress.trim() || deliveryAddress.trim() || null)
+        : null;
+
+      const itemsJson = cart.map(item => ({
+        menu_item_id: item.id || (item as any).menu_item_id,
+        name: item.name || item.name_ar || item.title || '',
+        quantity: item.quantity,
+        unit_price: getCartItemUnitPrice(item),
+        price: getCartItemUnitPrice(item) * item.quantity,
+        selected_options: item.selected_options || null,
+        notes: item.notes || null,
+      }));
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const rawUserId = session?.user?.id;
+      const validUserId =
+        typeof rawUserId === 'string' &&
+        uuidRegex.test(rawUserId) &&
+        rawUserId !== '00000000-0000-0000-0000-000000000000'
+          ? rawUserId
+          : null;
+
+      // ── Step 2: Insert order into Supabase orders table with pending_payment ──
+      const orderPayload: any = {
+        status: 'pending_payment',
+        restaurant_id: 'asmak_almohit_001',
+        user_id: validUserId,
+        customer_name: currentCustomerName,
+        customer_phone: normalizePhone(currentCustomerPhone),
+        items: itemsJson,
+        total_amount: grandTotal,
+        delivery_type: deliveryMode,
+        payment_method: 'card',
+        branch_name: branchName,
+        branch_id: branchId,
+        delivery_address: resolvedDeliveryAddress,
+        notes: orderNotes.trim() || null,
+        latitude: deliveryMode === 'delivery' ? selectedLocation.latitude : null,
+        longitude: deliveryMode === 'delivery' ? selectedLocation.longitude : null,
+        wallet_amount_used: amountPaidFromWallet,
+      };
+
+      console.log('[Moyasar] Inserting order payload:', JSON.stringify(orderPayload));
+
+      let createdOrder: any = null;
+      const { data: insertedOrder, error: orderError } = await supabase
+        .from('orders')
+        .insert([orderPayload])
+        .select()
+        .single();
+
+      if (orderError) {
+        console.warn('[Moyasar] Insert warning, retrying fallback payload:', orderError.message);
+        const { items, ...fallbackPayload } = orderPayload;
+        if (
+          orderError.code === '23503' ||
+          orderError.code === '22P02' ||
+          orderError.message?.includes('orders_user_id_fkey')
+        ) {
+          fallbackPayload.user_id = null;
+        }
+        const { data: retryOrder, error: retryError } = await supabase
+          .from('orders')
+          .insert([fallbackPayload])
+          .select()
+          .single();
+
+        if (retryError || !retryOrder) {
+          if (
+            retryError?.code === '23503' ||
+            retryError?.code === '22P02' ||
+            retryError?.message?.includes('orders_user_id_fkey')
+          ) {
+            const { data: finalOrder, error: finalError } = await supabase
+              .from('orders')
+              .insert([{ ...fallbackPayload, user_id: null }])
+              .select()
+              .single();
+
+            if (finalOrder && !finalError) {
+              createdOrder = finalOrder;
+            } else {
+              const failMsg = finalError?.message || retryError?.message || orderError.message;
+              console.error('[Moyasar] Order creation FAILED:', failMsg);
+              showAlert('فشل إرسال الطلب', failMsg);
+              return;
+            }
+          } else {
+            const failMsg = retryError?.message || orderError.message;
+            console.error('[Moyasar] Order creation FAILED:', failMsg);
+            showAlert('فشل إرسال الطلب', failMsg);
+            return;
+          }
+        } else {
+          createdOrder = retryOrder;
+        }
+      } else {
+        createdOrder = insertedOrder;
+      }
+
+      console.log('[Moyasar] Order created with ID:', createdOrder.id);
+
+      // Insert line items into order_items table for consistency across app
+      try {
+        const lineItemsPayload = cart.map(item => {
+          const itemPrice = getCartItemUnitPrice(item);
+          return {
+            order_id: createdOrder.id,
+            menu_item_id: item.id || (item as any).menu_item_id,
+            name: item.name || item.name_ar || item.title || '',
+            quantity: item.quantity,
+            unit_price: itemPrice,
+            price: itemPrice * item.quantity,
+          };
+        });
+        await supabase.from('order_items').insert(lineItemsPayload);
+      } catch (lineErr) {
+        console.warn('[Moyasar] order_items insert warning:', lineErr);
+      }
+
+      // Step 3: Open Payment Modal
+      setCurrentMoyasarOrder(createdOrder);
+      setIsCartModalVisible(false);
+      setIsPaymentModalVisible(true);
+
+    } catch (err: any) {
+      const errMsg = err?.message || JSON.stringify(err);
+      console.error('[Moyasar] Unexpected checkout error:', errMsg);
+      showAlert('فشل إرسال الطلب', errMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleMoyasarPaymentResult = async (paymentResult: any) => {
+    console.log('[Moyasar] Payment result received:', JSON.stringify(paymentResult));
+
+    const showAlert = (title: string, message: string) => {
+      if (typeof window !== 'undefined' && (window as any).alert) {
+        (window as any).alert(`${title}\n\n${message}`);
+      } else {
+        RNAlert.alert(title, message, [{ text: 'حسناً' }]);
+      }
+    };
+
+    const status = paymentResult?.status;
+    const isPaid = status === 'paid';
+
+    if (isPaid) {
+      // 1. Close payment modal
+      setIsPaymentModalVisible(false);
+
+      // 2. Clear cart & local storage
+      setCart([]);
+      await AsyncStorage.removeItem(CART_STORAGE_KEY);
+
+      // 3. Clear checkout inputs
+      setCustomerName('');
+      setCustomerPhone('');
+      setCheckoutDeliveryAddress('');
+      setOrderNotes('');
+      setPromoCode('');
+      setDiscount(0);
+
+      const orderId = currentMoyasarOrder?.id;
+      if (orderId) {
+        setPlacedOrderId(orderId);
+        setSuccessOrderNumber(String(currentMoyasarOrder.display_id ?? orderId));
+      }
+
+      // 4. Show Arabic confirmation alert
+      showAlert('تم بنجاح', 'تم الدفع واستلام طلبك بنجاح!');
+    } else {
+      // Payment failed or cancelled
+      const errorMsg =
+        paymentResult?.source?.message ||
+        paymentResult?.message ||
+        'لم تكتمل عملية الدفع بنجاح. يرجى التأكد من صحة بيانات البطاقة ورصيدها والمحاولة مرة أخرى.';
+      showAlert('فشل الدفع', `لم تكتمل عملية الدفع: ${errorMsg}`);
+    }
+  };
+
+  const renderPaymentModal = () => {
+    if (!currentMoyasarOrder) return null;
+
+    const publishableApiKey =
+      process.env.EXPO_PUBLIC_MOYASAR_PUBLISHABLE_KEY ||
+      'pk_test_pk_live_1qkyXScerepzj4VLZJYekaNj6wMWKUZif8DZ3wwJ';
+
+    let paymentConfig: PaymentConfig;
+    try {
+      paymentConfig = new PaymentConfig({
+        publishableApiKey,
+        amount: Math.round(Number(currentMoyasarOrder.total_amount) * 100),
+        currency: 'SAR',
+        description: `Order #${currentMoyasarOrder.id}`,
+        metadata: { order_id: currentMoyasarOrder.id },
+      });
+    } catch (err) {
+      console.error('[Moyasar] Error creating PaymentConfig:', err);
+      return null;
+    }
+
+    return (
+      <Modal
+        visible={isPaymentModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsPaymentModalVisible(false)}
+      >
+        <SafeAreaView style={styles.paymentModalSafeOverlay}>
+          <View style={styles.paymentModalContainer}>
+            {/* Header */}
+            <View style={[styles.paymentModalHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+              <View style={[styles.paymentModalHeaderTitleRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                <Ionicons name="shield-checkmark" size={24} color="#10B981" />
+                <View>
+                  <Text style={styles.paymentModalTitle}>
+                    {getText('الدفع الإلكتروني الآمن', 'Secure Payment Gateway')}
+                  </Text>
+                  <Text style={styles.paymentModalSubtitle}>
+                    {getText('مدعوم بواسطة ميسر (Moyasar)', 'Powered by Moyasar')}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsPaymentModalVisible(false)}
+                style={styles.paymentModalCloseButton}
+              >
+                <Ionicons name="close" size={22} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Order Summary Strip */}
+            <View style={[styles.paymentModalOrderBar, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+              <View>
+                <Text style={styles.paymentModalOrderNum}>
+                  {getText(
+                    `طلب #${currentMoyasarOrder.display_id || currentMoyasarOrder.id.slice(0, 8)}`,
+                    `Order #${currentMoyasarOrder.display_id || currentMoyasarOrder.id.slice(0, 8)}`
+                  )}
+                </Text>
+                <Text style={styles.paymentModalOrderDesc}>
+                  {currentMoyasarOrder.delivery_type === 'delivery'
+                    ? getText('توصيل للمنزل', 'Home Delivery')
+                    : getText('استلام من الفرع', 'Branch Pickup')}
+                </Text>
+              </View>
+              <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
+                <Text style={styles.paymentModalAmountLabel}>
+                  {getText('المبلغ الإجمالي', 'Total Amount')}
+                </Text>
+                <Text style={[styles.paymentModalAmountValue, { color: primaryColor }]}>
+                  {Number(currentMoyasarOrder.total_amount).toFixed(2)} {getText('ر.س', 'SAR')}
+                </Text>
+              </View>
+            </View>
+
+            {/* CreditCard Component */}
+            <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+              <CreditCard
+                paymentConfig={paymentConfig}
+                onPaymentResult={handleMoyasarPaymentResult}
+                style={{
+                  paymentButton: {
+                    backgroundColor: primaryColor,
+                    borderRadius: 14,
+                    height: 52,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginTop: 18,
+                  },
+                  paymentButtonText: {
+                    fontSize: 16,
+                    fontWeight: '700',
+                    color: '#FFFFFF',
+                  },
+                }}
+              />
+            </View>
+          </View>
+        </SafeAreaView>
+      </Modal>
+    );
+  };
+
   const renderCartModal = () => {
     const subtotal = cart.reduce((sum, item) => sum + (getCartItemUnitPrice(item) * item.quantity), 0);
     const deliveryFee = deliveryMode === 'delivery' ? 10 : 0;
@@ -2701,59 +3063,37 @@ export default function CustomerScreen() {
                 ))}
               </View>
 
-              {/* ── Conditional Credit Card Form ── */}
-              {paymentMethod === 'card' && (
-                <View style={{ marginBottom: 20, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
-                  <TextInput
-                    style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', marginBottom: 12, borderColor: cardError ? '#EF4444' : '#E5E7EB' }]}
-                    placeholder={getText('الاسم على البطاقة', 'Name on Card')}
-                    placeholderTextColor="#9CA3AF"
-                    value={cardName}
-                    onChangeText={(text) => { setCardName(text); if (cardError) setCardError(''); }}
-                  />
-                  <TextInput
-                    style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', marginBottom: 12, borderColor: cardError ? '#EF4444' : '#E5E7EB' }]}
-                    placeholder={getText('رقم البطاقة (16 رقم)', 'Card Number (16 digits)')}
-                    placeholderTextColor="#9CA3AF"
-                    keyboardType="numeric"
-                    maxLength={16}
-                    value={cardNumber}
-                    onChangeText={(text) => { setCardNumber(text); if (cardError) setCardError(''); }}
-                  />
-                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 10 }}>
-                    <TextInput
-                      style={[styles.cartModalNotesInput, { flex: 1, textAlign: isRTL ? 'right' : 'left', borderColor: cardError ? '#EF4444' : '#E5E7EB' }]}
-                      placeholder={getText('تاريخ الانتهاء (MM/YY)', 'Expiry (MM/YY)')}
-                      placeholderTextColor="#9CA3AF"
-                      maxLength={5}
-                      value={cardExpiry}
-                      onChangeText={(text) => {
-                        let formattedText = text;
-                        if (text.length === 2 && cardExpiry.length === 1) {
-                          formattedText = text + '/';
-                        } else if (text.length === 3 && text.charAt(2) !== '/') {
-                          formattedText = text.slice(0, 2) + '/' + text.slice(2);
-                        }
-                        setCardExpiry(formattedText);
-                        if (cardError) setCardError('');
-                      }}
-                    />
-                    <TextInput
-                      style={[styles.cartModalNotesInput, { flex: 1, textAlign: isRTL ? 'right' : 'left', borderColor: cardError ? '#EF4444' : '#E5E7EB' }]}
-                      placeholder={getText('الرمز السري (CVV)', 'CVV')}
-                      placeholderTextColor="#9CA3AF"
-                      keyboardType="numeric"
-                      secureTextEntry
-                      maxLength={4}
-                      value={cardCVV}
-                      onChangeText={(text) => { setCardCVV(text); if (cardError) setCardError(''); }}
-                    />
+              {/* ── Conditional Credit Card Info Badge (Moyasar) ── */}
+              {(paymentMethod === 'card' || paymentMethod === 'applepay' || paymentMethod === 'mada') && (
+                <View style={{
+                  marginBottom: 20,
+                  padding: 16,
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: '#E2E8F0',
+                  backgroundColor: '#F8FAFC',
+                  gap: 10,
+                }}>
+                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="shield-checkmark" size={22} color="#10B981" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: '#1E293B', textAlign: isRTL ? 'right' : 'left' }}>
+                        {getText('دفع إلكتروني فوري وآمن (Moyasar)', 'Secure Instant Payment (Moyasar)')}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#64748B', textAlign: isRTL ? 'right' : 'left' }}>
+                        {getText('مشفر بالكامل وفق معايير PCI DSS مع التحقق برمز OTP', 'Encrypted via PCI DSS with 3DS OTP verification')}
+                      </Text>
+                    </View>
                   </View>
-                  {cardError ? (
-                    <Text style={{ color: '#EF4444', fontSize: 13, marginTop: 10, textAlign: isRTL ? 'right' : 'left' }}>
-                      {cardError}
-                    </Text>
-                  ) : null}
+
+                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', justifyContent: 'center', gap: 12, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#EEF2F6' }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#004B87' }}>مدى mada</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#1A1F71' }}>VISA</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#EB001B' }}>MasterCard</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#016FD0' }}>AMEX</Text>
+                  </View>
                 </View>
               )}
 
@@ -2844,13 +3184,17 @@ export default function CustomerScreen() {
               <TouchableOpacity
                 style={[styles.cartCheckoutButton, { backgroundColor: primaryColor }, isSubmitting && { opacity: 0.7 }]}
                 onPress={() => {
-                  console.log('[Checkout] login button pressed');
+                  console.log('[Checkout] Submit / Pay Now button pressed');
                   if (!session) {
                     setIsCartModalVisible(false);
                     setResumeCheckout(true);
                     setTimeout(() => setShowAuthModal(true), 400);
                   } else {
-                    handlePlaceOrder();
+                    if (paymentMethod === 'cash') {
+                      handlePlaceOrder();
+                    } else {
+                      handlePayNow();
+                    }
                   }
                 }}
                 disabled={isSubmitting}
@@ -2859,9 +3203,17 @@ export default function CustomerScreen() {
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Ionicons name={session ? "checkmark-circle-outline" : "log-in-outline"} size={20} color="#FFFFFF" />
+                    <Ionicons
+                      name={session ? (paymentMethod === 'cash' ? "checkmark-circle-outline" : "card-outline") : "log-in-outline"}
+                      size={20}
+                      color="#FFFFFF"
+                    />
                     <Text style={styles.cartCheckoutButtonText}>
-                      {session ? getText('تأكيد وإرسال الطلب', 'Confirm & Submit Order') : getText('تسجيل الدخول للمتابعة', 'Login to Continue')}
+                      {session
+                        ? (paymentMethod === 'cash'
+                            ? getText('تأكيد وإرسال الطلب (كاش)', 'Confirm Order (Cash)')
+                            : getText('ادفع الآن', 'Pay Now'))
+                        : getText('تسجيل الدخول للمتابعة', 'Login to Continue')}
                     </Text>
                   </View>
                 )}
@@ -4965,6 +5317,9 @@ export default function CustomerScreen() {
       {/* Cart Checkout Modal */}
       {renderCartModal()}
 
+      {/* Moyasar Secure Payment Modal */}
+      {renderPaymentModal()}
+
       {/* Add Address Modal */}
       {renderAddAddressModal()}
 
@@ -6470,5 +6825,83 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  paymentModalSafeOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'flex-end',
+  },
+  paymentModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    height: '92%',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 24,
+  },
+  paymentModalHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+  },
+  paymentModalHeaderTitleRow: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  paymentModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  paymentModalSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  paymentModalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paymentModalOrderBar: {
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  paymentModalOrderNum: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  paymentModalOrderDesc: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  paymentModalAmountLabel: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  paymentModalAmountValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 2,
   },
 });
