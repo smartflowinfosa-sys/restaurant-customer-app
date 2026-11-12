@@ -173,7 +173,7 @@ export default function LoginScreen({
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [countdown, setCountdown] = useState(0);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const [errors, setErrors] = useState<{ phone?: string; form?: string }>({});
@@ -185,7 +185,6 @@ export default function LoginScreen({
   const isMountedRef = useRef(true);
   // Synchronous mutex guarantees zero duplicate API calls even on sub-millisecond double taps
   const isSubmittingRef = useRef(false);
-  const cooldownEndAtRef = useRef(0);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastAnimY = useRef(new Animated.Value(-96)).current;
   const toastAnimOpacity = useRef(new Animated.Value(0)).current;
@@ -200,20 +199,24 @@ export default function LoginScreen({
     };
   }, []);
 
-  // Tick resend cooldown using wall-clock expiry so backgrounded apps stay accurate
+  const isCountingDown = countdown > 0;
+
+  // Decrement OTP cooldown every second and clear interval on unmount or completion
   useEffect(() => {
-    if (cooldownSeconds <= 0) return;
+    if (!isCountingDown) return;
 
     const interval = setInterval(() => {
-      const remaining = Math.max(0, Math.ceil((cooldownEndAtRef.current - Date.now()) / 1000));
-      setCooldownSeconds(remaining);
-      if (remaining === 0) {
-        clearInterval(interval);
-      }
-    }, 500);
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [cooldownSeconds > 0]);
+  }, [isCountingDown]);
 
   const hideToast = useCallback(() => {
     if (toastTimerRef.current) {
@@ -270,8 +273,7 @@ export default function LoginScreen({
   );
 
   const startResendCooldown = useCallback(() => {
-    cooldownEndAtRef.current = Date.now() + OTP_RESEND_COOLDOWN_SECONDS * 1000;
-    setCooldownSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+    setCountdown(OTP_RESEND_COOLDOWN_SECONDS);
   }, []);
 
   // Responsive shell sizing (centered mobile frame on wide desktop web, full width on mobile)
@@ -296,8 +298,7 @@ export default function LoginScreen({
   };
 
   const requestOtp = async (isResend: boolean) => {
-    if (isSubmittingRef.current || isLoading || isResending) return;
-    if (isResend && cooldownSeconds > 0) return;
+    if (isSubmittingRef.current || isLoading || isResending || countdown > 0) return;
 
     setErrors({});
 
@@ -466,7 +467,7 @@ export default function LoginScreen({
       : ASMAK_LOGO_CIRCLE;
 
   const isBusy = isLoading || isResending;
-  const isResendDisabled = isBusy || cooldownSeconds > 0;
+  const isSendOtpDisabled = isBusy || countdown > 0;
   const isErrorToast = toast?.type === 'error';
 
   return (
@@ -696,17 +697,19 @@ export default function LoginScreen({
                   <Text style={[styles.inlineErrorText, fontSemiBold]}>{errors.phone}</Text>
                 ) : null}
 
-                {/* Large Pill-Shaped Primary Login Button (Soft Pastel Coral-Orange) */}
+                {/* Large Pill-Shaped Primary Login / Send OTP Button (Soft Pastel Coral-Orange) */}
                 <TouchableOpacity
-                  style={[styles.loginPillButton, isBusy && styles.buttonDisabled]}
+                  style={[styles.loginPillButton, isSendOtpDisabled && styles.buttonDisabled]}
                   onPress={handleSendOTP}
-                  disabled={isBusy}
+                  disabled={isSendOtpDisabled}
                   activeOpacity={0.88}
                 >
                   {isLoading ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
-                    <Text style={[styles.loginPillButtonText, fontBold]}>تسجيل الدخول</Text>
+                    <Text style={[styles.loginPillButtonText, fontBold]}>
+                      {countdown > 0 ? `إعادة الإرسال بعد ${countdown} ثانية` : 'تسجيل الدخول'}
+                    </Text>
                   )}
                 </TouchableOpacity>
 
@@ -773,10 +776,10 @@ export default function LoginScreen({
                   style={[
                     styles.resendPillButton,
                     { flexDirection: I18nManager.isRTL ? 'row' : 'row-reverse' },
-                    isResendDisabled && styles.resendPillButtonDisabled,
+                    isSendOtpDisabled && styles.resendPillButtonDisabled,
                   ]}
                   onPress={handleResendOTP}
-                  disabled={isResendDisabled}
+                  disabled={isSendOtpDisabled}
                   activeOpacity={0.8}
                 >
                   {isResending ? (
@@ -784,19 +787,19 @@ export default function LoginScreen({
                   ) : (
                     <>
                       <Ionicons
-                        name={cooldownSeconds > 0 ? 'time-outline' : 'refresh-outline'}
+                        name={countdown > 0 ? 'time-outline' : 'refresh-outline'}
                         size={18}
-                        color={isResendDisabled ? PLACEHOLDER_TEAL_GRAY : DARK_TEAL}
+                        color={isSendOtpDisabled ? PLACEHOLDER_TEAL_GRAY : DARK_TEAL}
                       />
                       <Text
                         style={[
                           styles.resendButtonText,
                           fontSemiBold,
-                          isResendDisabled && styles.resendButtonTextDisabled,
+                          isSendOtpDisabled && styles.resendButtonTextDisabled,
                         ]}
                       >
-                        {cooldownSeconds > 0
-                          ? `إعادة إرسال الرمز بعد ${cooldownSeconds} ثانية`
+                        {countdown > 0
+                          ? `إعادة الإرسال بعد ${countdown} ثانية`
                           : 'إعادة إرسال الرمز'}
                       </Text>
                     </>
