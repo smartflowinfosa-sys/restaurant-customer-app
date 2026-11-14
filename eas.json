@@ -17,7 +17,7 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://eueqqgjijpbonnnvzwej.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZXFxZ2ppanBib25ubnZ6d2VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyNjc3MjcsImV4cCI6MjEwNDg0MzcyN30.cHMURGn8c_Y5KLW88pTLbEDAremT-CxR584__4xxXS8",
         "EXPO_PUBLIC_ACTIVE_RESTAURANT_ID": "eb46422c-aeb5-471b-abbc-4778f9855aee",
-        "EXPO_PUBLIC_MOYASAR_PUBLISHABLE_KEY": "pk_test_pk_live_1qkyXScerepzj4VLZJYekaNj6wMWKUZif8DZ3wwJ"
+        "EXPO_PUBLIC_MOYASAR_PUBLISHABLE_KEY": "pk_test_ZStMPpeBDpu1xpgUMX9JyNaCgVy95v8dydUVe885"
       }
     },
     "production": {
@@ -26,7 +26,7 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://eueqqgjijpbonnnvzwej.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZXFxZ2ppanBib25ubnZ6d2VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyNjc3MjcsImV4cCI6MjEwNDg0MzcyN30.cHMURGn8c_Y5KLW88pTLbEDAremT-CxR584__4xxXS8",
         "EXPO_PUBLIC_ACTIVE_RESTAURANT_ID": "eb46422c-aeb5-471b-abbc-4778f9855aee",
-        "EXPO_PUBLIC_MOYASAR_PUBLISHABLE_KEY": "pk_test_pk_live_1qkyXScerepzj4VLZJYekaNj6wMWKUZif8DZ3wwJ"
+        "EXPO_PUBLIC_MOYASAR_PUBLISHABLE_KEY": "pk_test_ZStMPpeBDpu1xpgUMX9JyNaCgVy95v8dydUVe885"
       }
     }
   },

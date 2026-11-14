@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import {
   Modal,
   SafeAreaView,
+  ScrollView,
   View,
   Text,
   TouchableOpacity,
@@ -25,9 +26,11 @@ export default function MoyasarPaymentModal({
 }: MoyasarPaymentModalProps) {
   const paymentConfig = useMemo(() => {
     if (!orderId) return null;
-    const publishableApiKey =
-      process.env.EXPO_PUBLIC_MOYASAR_PUBLISHABLE_KEY ||
-      'pk_test_pk_live_1qkyXScerepzj4VLZJYekaNj6wMWKUZif8DZ3wwJ';
+    const publishableApiKey = (process.env.EXPO_PUBLIC_MOYASAR_PUBLISHABLE_KEY || '').trim();
+    if (!publishableApiKey) {
+      console.error('[Moyasar] Missing EXPO_PUBLIC_MOYASAR_PUBLISHABLE_KEY');
+      return null;
+    }
 
     try {
       return new PaymentConfig({
@@ -97,27 +100,41 @@ export default function MoyasarPaymentModal({
           </View>
 
           {/* CreditCard Component */}
-          <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-            <CreditCard
-              paymentConfig={paymentConfig}
-              onPaymentResult={onPaymentResult}
-              style={{
-                paymentButton: {
-                  backgroundColor: primaryColor,
-                  borderRadius: 14,
-                  height: 52,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginTop: 18,
-                },
-                paymentButtonText: {
-                  fontSize: 16,
-                  fontWeight: '700',
-                  color: '#FFFFFF',
-                },
-              }}
-            />
-          </View>
+          <ScrollView
+            keyboardShouldPersistTaps="always"
+            contentContainerStyle={{ flexGrow: 1, backgroundColor: '#FFFFFF' }}
+            style={{ flex: 1, backgroundColor: '#FFFFFF' }}
+          >
+            <View style={{ direction: 'ltr', width: '100%', backgroundColor: '#FFFFFF' }}>
+              <CreditCard
+                paymentConfig={paymentConfig}
+                onPaymentResult={onPaymentResult}
+                style={{
+                  container: {
+                    backgroundColor: '#FFFFFF',
+                  },
+                  textInputs: {
+                    color: '#0F172A',
+                    backgroundColor: '#FFFFFF',
+                  },
+                  textInputsPlaceholderColor: '#94A3B8',
+                  paymentButton: {
+                    backgroundColor: primaryColor,
+                    borderRadius: 14,
+                    height: 52,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginTop: 18,
+                  },
+                  paymentButtonText: {
+                    fontSize: 16,
+                    fontWeight: '700',
+                    color: '#FFFFFF',
+                  },
+                }}
+              />
+            </View>
+          </ScrollView>
         </View>
       </SafeAreaView>
     </Modal>

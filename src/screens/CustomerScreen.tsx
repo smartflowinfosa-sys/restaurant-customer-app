@@ -42,6 +42,7 @@ import { supabase } from '../../lib/supabase';
 import { useRestaurant, TARGET_RESTAURANT_ID } from '../contexts/RestaurantContext';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
+import * as ImagePicker from 'expo-image-picker';
 import LoginScreen from './LoginScreen';
 import AnimatedSplashScreen from '../components/AnimatedSplashScreen';
 import MoyasarPaymentModal from '../components/MoyasarPaymentModal';
@@ -796,6 +797,18 @@ export default function CustomerScreen() {
   const [selectedAddressType, setSelectedAddressType] = useState('Home');
   const [manualAddress, setManualAddress] = useState({ neighborhood: '', street: '', building: '' });
   const [addressEntryMode, setAddressEntryMode] = useState<'selection' | 'manual'>('selection');
+  const [isSavingAddress, setIsSavingAddress] = useState(false);
+  const [addressLabel, setAddressLabel] = useState<'البيت' | 'العمل' | 'أخرى'>('البيت');
+  const [isDefaultAddress, setIsDefaultAddress] = useState(false);
+  const [addressPhotoUri, setAddressPhotoUri] = useState<string | null>(null);
+
+  const withTimeout = <T,>(promise: Promise<T>, ms = 3000, label = 'operation'): Promise<T> =>
+    Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      ),
+    ]);
 
   useEffect(() => {
     const registerForPushNotificationsAsync = async () => {
@@ -846,6 +859,7 @@ export default function CustomerScreen() {
 
   const handleLocateMe = async () => {
     try {
+      setLocationLoading(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         if (typeof window !== 'undefined' && (window as any).alert) {
@@ -855,16 +869,20 @@ export default function CustomerScreen() {
         }
         return;
       }
-      const location = await Location.getCurrentPositionAsync({});
+      const location = await withTimeout(
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        3000,
+        'getCurrentPositionAsync'
+      );
       const { latitude, longitude } = location.coords;
-      
+
       mapRef.current?.animateToRegion({
         latitude,
         longitude,
         latitudeDelta: 0.005,
         longitudeDelta: 0.005,
       });
-      
+
       setMapRegion({
         latitude,
         longitude,
@@ -872,8 +890,66 @@ export default function CustomerScreen() {
         longitudeDelta: 0.005,
       });
     } catch (error) {
-      console.error('Error getting location:', error);
+      console.warn('[Location] handleLocateMe fallback:', error);
+    } finally {
+      setLocationLoading(false);
     }
+  };
+
+  const launchAddressCamera = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        RNAlert.alert('تنبيه', 'الرجاء السماح بالوصول إلى الكاميرا لإضافة صورة للموقع', [{ text: 'حسناً' }]);
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.7,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setAddressPhotoUri(result.assets[0].uri);
+      }
+    } catch (err) {
+      console.warn('[AddressPhoto] Camera error:', err);
+    }
+  };
+
+  const launchAddressGallery = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        RNAlert.alert('تنبيه', 'الرجاء السماح بالوصول إلى معرض الصور لإضافة صورة للموقع', [{ text: 'حسناً' }]);
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.7,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setAddressPhotoUri(result.assets[0].uri);
+      }
+    } catch (err) {
+      console.warn('[AddressPhoto] Gallery error:', err);
+    }
+  };
+
+  const handlePickAddressPhoto = () => {
+    if (Platform.OS === 'web') {
+      launchAddressGallery();
+      return;
+    }
+    RNAlert.alert(
+      'صورة الموقع',
+      'اختر طريقة إضافة صورة للموقع:',
+      [
+        { text: 'التقاط صورة بالكاميرا', onPress: launchAddressCamera },
+        { text: 'اختيار من المعرض', onPress: launchAddressGallery },
+        { text: 'إلغاء', style: 'cancel' },
+      ]
+    );
   };
 
   useEffect(() => {
@@ -1395,10 +1471,19 @@ export default function CustomerScreen() {
           let { status } = await Location.requestForegroundPermissionsAsync();
           if (status !== 'granted') {
             console.log('Location permission denied');
-            setLocationLoading(false);
+            setMapRegion({
+              latitude: DEFAULT_COORDS.latitude,
+              longitude: DEFAULT_COORDS.longitude,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
+            });
             return;
           }
-          let location = await Location.getCurrentPositionAsync({});
+          let location = await withTimeout(
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            3000,
+            'getCurrentPositionAsync'
+          );
           setMapRegion({
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
@@ -1409,16 +1494,16 @@ export default function CustomerScreen() {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
           });
-          setLocationLoading(false);
         } catch (error) {
-          console.error('Error getting location:', error);
-          // Fallback to default coordinates if location fails
+          console.warn('Error or timeout getting location:', error);
+          // Fallback to default coordinates if location fails or times out
           setMapRegion({
             latitude: DEFAULT_COORDS.latitude,
             longitude: DEFAULT_COORDS.longitude,
             latitudeDelta: 0.01,
             longitudeDelta: 0.01,
           });
+        } finally {
           setLocationLoading(false);
         }
       })();
@@ -4962,59 +5047,244 @@ export default function CustomerScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Bottom Section - Bottom Sheet (35% height) */}
+          {/* Bottom Section - Bottom Sheet */}
           <View style={styles.mapBottomSheet}>
-            {/* Title Text */}
-            <Text style={styles.mapBottomSheetTitle}>
-              {getText('حدد موقعك', 'Select Your Location')}
-            </Text>
-
-            {/* Search Bar */}
-            <View style={[styles.mapSearchBar, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-              <Ionicons name="search" size={20} color="#64748B" />
-              <TextInput
-                style={[styles.mapSearchInput, { textAlign: isRTL ? 'right' : 'left' }]}
-                placeholder={getText('بحث...', 'Search...')}
-                placeholderTextColor="#94A3B8"
-                value={searchLocation}
-                onChangeText={setSearchLocation}
-              />
-            </View>
-
-            {/* Action Button */}
-            <TouchableOpacity
-              style={styles.mapActionButton}
-              onPress={async () => {
-                if (mapRegion) {
-                  try {
-                    const addressResults = await Location.reverseGeocodeAsync({
-                      latitude: mapRegion.latitude,
-                      longitude: mapRegion.longitude,
-                    });
-                    if (addressResults && addressResults.length > 0) {
-                      const address = addressResults[0];
-                      const formattedAddress = [
-                        address.street,
-                        address.city,
-                        address.region,
-                        address.country,
-                      ].filter(Boolean).join(', ') || 'تم تحديد الموقع من الخريطة';
-                      setDeliveryAddress(formattedAddress);
-                    } else {
-                      setDeliveryAddress('تم تحديد الموقع من الخريطة');
-                    }
-                  } catch (error) {
-                    console.error('Error reverse geocoding:', error);
-                    setDeliveryAddress('تم تحديد الموقع من الخريطة');
-                  }
-                }
-                setShowLocationModal(false);
-              }}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 8 }}
             >
-              <Text style={styles.mapActionButtonText}>
-                {getText('تعيين العنوان', 'Set Address')}
+              {/* Title Text */}
+              <Text style={styles.mapBottomSheetTitle}>
+                {getText('حدد موقعك', 'Select Your Location')}
               </Text>
-            </TouchableOpacity>
+
+              {/* Search Bar */}
+              <View style={[styles.mapSearchBar, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                <Ionicons name="search" size={20} color="#64748B" />
+                <TextInput
+                  style={[styles.mapSearchInput, { textAlign: isRTL ? 'right' : 'left' }]}
+                  placeholder={getText('بحث...', 'Search...')}
+                  placeholderTextColor="#94A3B8"
+                  value={searchLocation}
+                  onChangeText={setSearchLocation}
+                />
+              </View>
+
+              {/* Address Type Chips Row */}
+              <View style={[styles.addressChipsRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                {([
+                  { key: 'البيت' as const, labelEn: 'Home', icon: 'home-outline' as const },
+                  { key: 'العمل' as const, labelEn: 'Work', icon: 'briefcase-outline' as const },
+                  { key: 'أخرى' as const, labelEn: 'Other', icon: 'location-outline' as const },
+                ]).map((chip) => {
+                  const isActive = addressLabel === chip.key;
+                  return (
+                    <TouchableOpacity
+                      key={chip.key}
+                      onPress={() => setAddressLabel(chip.key)}
+                      style={[
+                        styles.addressChip,
+                        { flexDirection: isRTL ? 'row-reverse' : 'row' },
+                        isActive && { borderColor: primaryColor, backgroundColor: `${primaryColor}15` },
+                      ]}
+                    >
+                      <Ionicons
+                        name={chip.icon}
+                        size={16}
+                        color={isActive ? primaryColor : '#64748B'}
+                      />
+                      <Text
+                        style={[
+                          styles.addressChipText,
+                          isActive && { color: primaryColor, fontWeight: '700' },
+                        ]}
+                      >
+                        {getText(chip.key, chip.labelEn)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Default Address Toggle & Location Photo Row */}
+              <View style={[styles.addressExtrasRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                <TouchableOpacity
+                  onPress={() => setIsDefaultAddress((prev) => !prev)}
+                  style={[
+                    styles.addressToggleChip,
+                    { flexDirection: isRTL ? 'row-reverse' : 'row' },
+                    isDefaultAddress && { borderColor: primaryColor, backgroundColor: `${primaryColor}15` },
+                  ]}
+                >
+                  <Ionicons
+                    name={isDefaultAddress ? 'star' : 'star-outline'}
+                    size={16}
+                    color={isDefaultAddress ? primaryColor : '#64748B'}
+                  />
+                  <Text
+                    style={[
+                      styles.addressChipText,
+                      isDefaultAddress && { color: primaryColor, fontWeight: '700' },
+                    ]}
+                  >
+                    {getText('تعيين كعنوان افتراضي', 'Default Location')}
+                  </Text>
+                </TouchableOpacity>
+
+                {!addressPhotoUri ? (
+                  <TouchableOpacity
+                    onPress={handlePickAddressPhoto}
+                    style={[styles.addressPhotoBtn, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
+                  >
+                    <Ionicons name="camera-outline" size={16} color="#475569" />
+                    <Text style={styles.addressPhotoBtnText}>
+                      {getText('إضافة صورة للموقع (اختياري)', 'Add Location Photo (Optional)')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={[styles.addressPhotoPreviewRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                    <Image source={{ uri: addressPhotoUri }} style={styles.addressPhotoThumb} />
+                    <TouchableOpacity
+                      onPress={() => setAddressPhotoUri(null)}
+                      style={styles.addressPhotoRemoveBtn}
+                    >
+                      <Ionicons name="close" size={14} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {/* Action Button */}
+              <TouchableOpacity
+                style={[styles.mapActionButton, isSavingAddress && { opacity: 0.7 }]}
+                disabled={isSavingAddress}
+                onPress={async () => {
+                  if (isSavingAddress) return;
+                  setIsSavingAddress(true);
+                  try {
+                    const lat = mapRegion?.latitude ?? userLocation.latitude ?? DEFAULT_COORDS.latitude;
+                    const lng = mapRegion?.longitude ?? userLocation.longitude ?? DEFAULT_COORDS.longitude;
+                    let resolvedAddress = 'موقع محدد على الخريطة';
+
+                    try {
+                      const addressResults = await withTimeout(
+                        Location.reverseGeocodeAsync({ latitude: lat, longitude: lng }),
+                        3000,
+                        'reverseGeocodeAsync'
+                      );
+                      if (addressResults && addressResults.length > 0) {
+                        const address = addressResults[0];
+                        const formatted = [
+                          address.street,
+                          address.city,
+                          address.region,
+                          address.country,
+                        ]
+                          .filter(Boolean)
+                          .join(', ');
+                        if (formatted) {
+                          resolvedAddress = formatted;
+                        }
+                      }
+                    } catch (geoErr) {
+                      console.warn('[Location] reverseGeocodeAsync timed out or failed, using fallback:', geoErr);
+                      resolvedAddress = 'موقع محدد على الخريطة';
+                    }
+
+                    setSelectedLocation({ latitude: lat, longitude: lng });
+                    setDeliveryAddress(resolvedAddress);
+                    setCheckoutDeliveryAddress(resolvedAddress);
+
+                    // Upload optional location photo to Supabase 'address-photos' bucket
+                    let uploadedPhotoUrl: string | null = null;
+                    if (addressPhotoUri) {
+                      try {
+                        const fileExt = addressPhotoUri.split('.').pop()?.toLowerCase() || 'jpg';
+                        const safeExt = fileExt === 'png' ? 'png' : 'jpg';
+                        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                        const rawUid = session?.user?.id;
+                        const ownerPrefix =
+                          typeof rawUid === 'string' &&
+                          uuidRegex.test(rawUid) &&
+                          rawUid !== '00000000-0000-0000-0000-000000000000'
+                            ? rawUid
+                            : 'guest';
+                        const fileName = `${ownerPrefix}_${Date.now()}.${safeExt}`;
+                        const res = await fetch(addressPhotoUri);
+                        const arrayBuffer = await res.arrayBuffer();
+                        const { error: uploadError } = await supabase.storage
+                          .from('address-photos')
+                          .upload(fileName, arrayBuffer, {
+                            contentType: `image/${safeExt === 'png' ? 'png' : 'jpeg'}`,
+                            upsert: true,
+                          });
+                        if (!uploadError) {
+                          const { data: pubData } = supabase.storage
+                            .from('address-photos')
+                            .getPublicUrl(fileName);
+                          uploadedPhotoUrl = pubData?.publicUrl || null;
+                        } else {
+                          console.warn('[AddressPhoto] Storage upload warning:', uploadError.message);
+                        }
+                      } catch (photoErr) {
+                        console.warn('[AddressPhoto] Storage upload failed:', photoErr);
+                      }
+                    }
+
+                    // Persist address to user_addresses if authenticated with a real user UUID
+                    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                    const rawUid = session?.user?.id;
+                    const validUserId =
+                      typeof rawUid === 'string' &&
+                      uuidRegex.test(rawUid) &&
+                      rawUid !== '00000000-0000-0000-0000-000000000000'
+                        ? rawUid
+                        : null;
+
+                    if (validUserId) {
+                      try {
+                        if (isDefaultAddress) {
+                          await supabase
+                            .from('user_addresses')
+                            .update({ is_default: false })
+                            .eq('user_id', validUserId);
+                        }
+                        const { error: addrError } = await supabase.from('user_addresses').insert({
+                          user_id: validUserId,
+                          label: addressLabel,
+                          address_type: addressLabel,
+                          address_text: resolvedAddress,
+                          is_default: isDefaultAddress,
+                          photo_url: uploadedPhotoUrl,
+                          latitude: lat,
+                          longitude: lng,
+                        });
+                        if (addrError) {
+                          console.warn('[Address] Save warning:', addrError.message);
+                        }
+                      } catch (saveErr) {
+                        console.warn('[Address] Save failed:', saveErr);
+                      }
+                    }
+                  } catch (err) {
+                    console.error('[Location] Unexpected error setting address:', err);
+                  } finally {
+                    setIsSavingAddress(false);
+                    setAddressPhotoUri(null);
+                    setShowLocationModal(false);
+                  }
+                }}
+              >
+                {isSavingAddress ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.mapActionButtonText}>
+                    {getText('تعيين العنوان', 'Set Address')}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -6316,7 +6586,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   mapTopSection: {
-    flex: 0.65,
+    flex: 0.52,
     position: 'relative',
   },
   mapBackButton: {
@@ -6330,13 +6600,13 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   mapBottomSheet: {
-    flex: 0.35,
+    flex: 0.48,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 32,
+    paddingTop: 18,
+    paddingBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.1,
@@ -6348,7 +6618,87 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1E293B',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  addressChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  addressChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  addressChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  addressExtrasRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 12,
+  },
+  addressToggleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  addressPhotoBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderStyle: 'dashed',
+  },
+  addressPhotoBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  addressPhotoPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  addressPhotoThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#E2E8F0',
+  },
+  addressPhotoRemoveBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   mapSearchBar: {
     backgroundColor: '#F8F9FA',
