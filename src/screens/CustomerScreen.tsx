@@ -597,6 +597,79 @@ interface Region {
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+interface LocationModalMapProps {
+  mapRef: React.RefObject<any>;
+  initialRegion: Region;
+  primaryColor: string;
+  onRegionChangeComplete: (region: Region) => void;
+  onLocateMe: () => void;
+}
+
+const LocationModalMap = React.memo(
+  ({ mapRef, initialRegion, primaryColor, onRegionChangeComplete, onLocateMe }: LocationModalMapProps) => {
+    if (!MapView) {
+      return null;
+    }
+
+    return (
+      <>
+        <MapView
+          ref={mapRef}
+          provider={PROVIDER_GOOGLE}
+          style={{ flex: 1 }}
+          initialRegion={initialRegion}
+          showsUserLocation={true}
+          showsMyLocationButton={false}
+          showsCompass={false}
+          zoomControlEnabled={false}
+          rotateEnabled={false}
+          pitchEnabled={false}
+          toolbarEnabled={false}
+          moveOnMarkerPress={false}
+          onRegionChangeComplete={onRegionChangeComplete}
+        />
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            marginLeft: -20,
+            marginTop: -40,
+            alignItems: 'center',
+          }}
+        >
+          <View style={[styles.markerPin, { backgroundColor: primaryColor }]}>
+            <Ionicons name="location" size={24} color="#FFFFFF" />
+          </View>
+          <View style={[styles.markerShadow, { backgroundColor: primaryColor }]} />
+        </View>
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            bottom: 20,
+            right: 20,
+            backgroundColor: '#FFFFFF',
+            borderRadius: 30,
+            width: 50,
+            height: 50,
+            justifyContent: 'center',
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+          }}
+          onPress={onLocateMe}
+        >
+          <Ionicons name="locate" size={24} color="#1E293B" />
+        </TouchableOpacity>
+      </>
+    );
+  }
+);
+
 export default function CustomerScreen() {
   const {
     restaurant,
@@ -856,8 +929,13 @@ export default function CustomerScreen() {
   };
 
   const mapRef = useRef<any>(null);
+  const latestMapRegionRef = useRef<Region | null>(null);
 
-  const handleLocateMe = async () => {
+  const handleMapRegionChangeComplete = useCallback((region: Region) => {
+    latestMapRegionRef.current = region;
+  }, []);
+
+  const handleLocateMe = useCallback(async () => {
     try {
       setLocationLoading(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -875,26 +953,21 @@ export default function CustomerScreen() {
         'getCurrentPositionAsync'
       );
       const { latitude, longitude } = location.coords;
-
-      mapRef.current?.animateToRegion({
+      const nextRegion: Region = {
         latitude,
         longitude,
         latitudeDelta: 0.005,
         longitudeDelta: 0.005,
-      });
+      };
 
-      setMapRegion({
-        latitude,
-        longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      });
+      latestMapRegionRef.current = nextRegion;
+      mapRef.current?.animateToRegion(nextRegion);
     } catch (error) {
       console.warn('[Location] handleLocateMe fallback:', error);
     } finally {
       setLocationLoading(false);
     }
-  };
+  }, []);
 
   const launchAddressCamera = async () => {
     try {
@@ -1471,12 +1544,14 @@ export default function CustomerScreen() {
           let { status } = await Location.requestForegroundPermissionsAsync();
           if (status !== 'granted') {
             console.log('Location permission denied');
-            setMapRegion({
+            const fallbackRegion: Region = {
               latitude: DEFAULT_COORDS.latitude,
               longitude: DEFAULT_COORDS.longitude,
               latitudeDelta: 0.01,
               longitudeDelta: 0.01,
-            });
+            };
+            latestMapRegionRef.current = fallbackRegion;
+            setMapRegion(fallbackRegion);
             return;
           }
           let location = await withTimeout(
@@ -1484,12 +1559,14 @@ export default function CustomerScreen() {
             3000,
             'getCurrentPositionAsync'
           );
-          setMapRegion({
+          const resolvedRegion: Region = {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
             latitudeDelta: 0.01,
             longitudeDelta: 0.01,
-          });
+          };
+          latestMapRegionRef.current = resolvedRegion;
+          setMapRegion(resolvedRegion);
           setUserLocation({
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
@@ -1497,12 +1574,14 @@ export default function CustomerScreen() {
         } catch (error) {
           console.warn('Error or timeout getting location:', error);
           // Fallback to default coordinates if location fails or times out
-          setMapRegion({
+          const fallbackRegion: Region = {
             latitude: DEFAULT_COORDS.latitude,
             longitude: DEFAULT_COORDS.longitude,
             latitudeDelta: 0.01,
             longitudeDelta: 0.01,
-          });
+          };
+          latestMapRegionRef.current = fallbackRegion;
+          setMapRegion(fallbackRegion);
         } finally {
           setLocationLoading(false);
         }
@@ -2857,7 +2936,10 @@ export default function CustomerScreen() {
                         }}
                         zoomControlEnabled={false}
                         showsCompass={false}
+                        rotateEnabled={false}
+                        pitchEnabled={false}
                         toolbarEnabled={false}
+                        moveOnMarkerPress={false}
                         showsMyLocationButton={false}
                         onRegionChangeComplete={(region: any) => setSelectedLocation({ latitude: region.latitude, longitude: region.longitude })}
                       />
@@ -4967,65 +5049,13 @@ export default function CustomerScreen() {
                   <Text>الخريطة التفاعلية مدعومة على الجوال فقط</Text>
                 </View>
               ) : (
-                (() => {
-                  const Maps = require('react-native-maps');
-                  const MapView = Maps.default;
-                  const { Marker, PROVIDER_GOOGLE } = Maps;
-                  return (
-                    <>
-                    <MapView
-                      ref={mapRef}
-                      provider={PROVIDER_GOOGLE}
-                      style={{ flex: 1 }}
-                      region={mapRegion}
-                      showsUserLocation={true}
-                      onRegionChangeComplete={(region: Region) => setMapRegion(region)}
-                    >
-                      <Marker
-                        coordinate={mapRegion}
-                        title={getText('موقعك الحالي', 'Your Current Location')}
-                        description={getText('موقع التوصيل', 'Delivery Location')}
-                        draggable
-                        onDragEnd={(e: any) => {
-                          setMapRegion({
-                            ...mapRegion,
-                            latitude: e.nativeEvent.coordinate.latitude,
-                            longitude: e.nativeEvent.coordinate.longitude,
-                          });
-                        }}
-                      >
-                        <View style={styles.customMarker}>
-                          <View style={[styles.markerPin, { backgroundColor: primaryColor }]}>
-                            <Ionicons name="location" size={24} color="#FFFFFF" />
-                          </View>
-                          <View style={[styles.markerShadow, { backgroundColor: primaryColor }]} />
-                        </View>
-                      </Marker>
-                    </MapView>
-                    <TouchableOpacity
-                      style={{
-                        position: 'absolute',
-                        bottom: 20,
-                        right: 20,
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: 30,
-                        width: 50,
-                        height: 50,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.25,
-                        shadowRadius: 3.84,
-                        elevation: 5,
-                      }}
-                      onPress={handleLocateMe}
-                    >
-                      <Ionicons name="locate" size={24} color="#1E293B" />
-                    </TouchableOpacity>
-                    </>
-                  );
-                })()
+                <LocationModalMap
+                  mapRef={mapRef}
+                  initialRegion={mapRegion}
+                  primaryColor={primaryColor}
+                  onRegionChangeComplete={handleMapRegionChangeComplete}
+                  onLocateMe={handleLocateMe}
+                />
               )
             ) : (
               <View style={styles.mapLoadingContainer}>
@@ -5163,8 +5193,9 @@ export default function CustomerScreen() {
                   if (isSavingAddress) return;
                   setIsSavingAddress(true);
                   try {
-                    const lat = mapRegion?.latitude ?? userLocation.latitude ?? DEFAULT_COORDS.latitude;
-                    const lng = mapRegion?.longitude ?? userLocation.longitude ?? DEFAULT_COORDS.longitude;
+                    const activeRegion = latestMapRegionRef.current ?? mapRegion;
+                    const lat = activeRegion?.latitude ?? userLocation.latitude ?? DEFAULT_COORDS.latitude;
+                    const lng = activeRegion?.longitude ?? userLocation.longitude ?? DEFAULT_COORDS.longitude;
                     let resolvedAddress = 'موقع محدد على الخريطة';
 
                     try {
