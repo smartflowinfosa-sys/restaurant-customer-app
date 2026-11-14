@@ -46,6 +46,7 @@ import * as ImagePicker from 'expo-image-picker';
 import LoginScreen from './LoginScreen';
 import AnimatedSplashScreen from '../components/AnimatedSplashScreen';
 import MoyasarPaymentModal from '../components/MoyasarPaymentModal';
+import Toast from 'react-native-toast-message';
 
 const RESTAURANT_ID = TARGET_RESTAURANT_ID;
 
@@ -1360,46 +1361,63 @@ export default function CustomerScreen() {
     const statusDetails = getOrderStatusDetails(newStatus, order.delivery_mode, isRTL);
     const displayNum = order.display_id || `#${String(order.id).slice(0, 6)}`;
 
-    const toastData = {
-      visible: true,
-      orderNumber: displayNum,
-      status: statusDetails.label,
-      title: getText(`تحديث حالة الطلب (${displayNum})`, `Order Status Updated (${displayNum})`),
-      message: statusDetails.description,
-      color: statusDetails.color,
-      bgColor: statusDetails.bgColor,
-      icon: statusDetails.icon,
+    const toastSubtitleMap: Record<string, { ar: string; en: string }> = {
+      accepted: {
+        ar: 'تم قبول الطلب وجاري تحضيره',
+        en: 'Your order has been accepted and is being prepared',
+      },
+      preparing: {
+        ar: 'تم قبول الطلب وجاري تحضيره',
+        en: 'Your meal is being prepared now',
+      },
+      in_kitchen: {
+        ar: 'تم قبول الطلب وجاري تحضيره',
+        en: 'Your meal is being prepared in the kitchen',
+      },
+      ready: {
+        ar: order.delivery_mode === 'delivery' ? 'طلبك جاهز وبانتظار المندوب' : 'طلبك جاهز للاستلام من الفرع!',
+        en: order.delivery_mode === 'delivery' ? 'Order is ready for delivery!' : 'Order is ready for pickup!',
+      },
+      ready_for_pickup: {
+        ar: 'طلبك جاهز للاستلام من الفرع!',
+        en: 'Your order is ready for pickup!',
+      },
+      out_for_delivery: {
+        ar: 'طلبك في الطريق إليك الآن!',
+        en: 'Your order is on the way!',
+      },
+      delivered: {
+        ar: 'تم تسليم طلبك بنجاح، بالعافية!',
+        en: 'Your order has been delivered, enjoy!',
+      },
+      completed: {
+        ar: 'تم تسليم طلبك بنجاح، بالعافية!',
+        en: 'Order completed, enjoy!',
+      },
     };
 
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
+    const mappedText = toastSubtitleMap[newStatus];
+    const messageText = mappedText
+      ? getText(mappedText.ar, mappedText.en)
+      : statusDetails.description;
 
-    setStatusToast(toastData);
-    toastAnimY.setValue(-120);
-    toastAnimOpacity.setValue(0);
-
-    Animated.parallel([
-      Animated.spring(toastAnimY, {
-        toValue: 0,
-        useNativeDriver: true,
-        friction: 8,
-        tension: 40,
-      }),
-      Animated.timing(toastAnimOpacity, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    Toast.show({
+      type: newStatus === 'cancelled' ? 'error' : 'success',
+      text1: getText(`تحديث الطلب (${displayNum})`, `Order Update (${displayNum})`),
+      text2: messageText,
+      position: 'top',
+      visibilityTime: 4500,
+      autoHide: true,
+      topOffset: Platform.OS === 'ios' ? insets.top + 10 : 40,
+    });
 
     // Trigger local push notification if permitted
     try {
       if (Platform.OS !== 'web') {
         Notifications.scheduleNotificationAsync({
           content: {
-            title: getText(`تحديث حالة الطلب (${displayNum})`, `Order Status Updated (${displayNum})`),
-            body: `${statusDetails.label}: ${statusDetails.description}`,
+            title: getText(`تحديث الطلب (${displayNum})`, `Order Update (${displayNum})`),
+            body: messageText,
             sound: true,
           },
           trigger: null,
@@ -1408,11 +1426,18 @@ export default function CustomerScreen() {
     } catch (e) {
       // safe fallback
     }
-
-    toastTimeoutRef.current = setTimeout(() => {
-      hideStatusToast();
-    }, 6000);
   };
+
+  useEffect(() => {
+    if (successOrderNumber === null) return;
+    const timer = setTimeout(() => {
+      setSuccessOrderNumber(null);
+      setCart([]);
+      AsyncStorage.removeItem(CART_STORAGE_KEY).catch(() => {});
+      setActiveTab('menu');
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [successOrderNumber]);
 
   const hideStatusToast = () => {
     Animated.parallel([
@@ -2517,6 +2542,7 @@ export default function CustomerScreen() {
       setDiscount(0);
       setIsCartModalVisible(false);
       setPlacedOrderId(order.id);
+      setTrackingOrderId(order.id);
       setSuccessOrderNumber(String(order.display_id ?? order.id));
 
     } catch (error: any) {
@@ -2768,11 +2794,11 @@ export default function CustomerScreen() {
       const orderId = currentMoyasarOrder?.id;
       if (orderId) {
         setPlacedOrderId(orderId);
+        setTrackingOrderId(orderId);
         setSuccessOrderNumber(String(currentMoyasarOrder.display_id ?? orderId));
+      } else {
+        setSuccessOrderNumber('');
       }
-
-      // 4. Show Arabic confirmation alert
-      showAlert('تم بنجاح', 'تم الدفع واستلام طلبك بنجاح!');
     } else {
       // Payment failed or cancelled
       const errorMsg =
@@ -3337,40 +3363,6 @@ export default function CustomerScreen() {
                 ))}
               </View>
 
-              {/* ── Conditional Credit Card Info Badge (Moyasar) ── */}
-              {(paymentMethod === 'card' || paymentMethod === 'applepay' || paymentMethod === 'mada') && (
-                <View style={{
-                  marginBottom: 20,
-                  padding: 16,
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: '#E2E8F0',
-                  backgroundColor: '#F8FAFC',
-                  gap: 10,
-                }}>
-                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 10 }}>
-                    <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' }}>
-                      <Ionicons name="shield-checkmark" size={22} color="#10B981" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '700', color: '#1E293B', textAlign: isRTL ? 'right' : 'left' }}>
-                        {getText('دفع إلكتروني فوري وآمن (Moyasar)', 'Secure Instant Payment (Moyasar)')}
-                      </Text>
-                      <Text style={{ fontSize: 12, color: '#64748B', textAlign: isRTL ? 'right' : 'left' }}>
-                        {getText('مشفر بالكامل وفق معايير PCI DSS مع التحقق برمز OTP', 'Encrypted via PCI DSS with 3DS OTP verification')}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', justifyContent: 'center', gap: 12, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#EEF2F6' }}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#004B87' }}>مدى mada</Text>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#1A1F71' }}>VISA</Text>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#EB001B' }}>MasterCard</Text>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#016FD0' }}>AMEX</Text>
-                  </View>
-                </View>
-              )}
-
               {/* ── SECTION 6: Financial Summary ── */}
               {walletBalance > 0 && (
                 <View style={{ marginBottom: 20 }}>
@@ -3652,88 +3644,61 @@ export default function CustomerScreen() {
 
   const renderSuccessModal = () => {
     const displayOrderId = successOrderNumber || '';
+    const dismissSuccessModal = () => {
+      setSuccessOrderNumber(null);
+      setCart([]);
+      AsyncStorage.removeItem(CART_STORAGE_KEY).catch(() => {});
+      setActiveTab('menu');
+    };
+
     return (
       <Modal
         visible={successOrderNumber !== null}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setSuccessOrderNumber(null)}
+        onRequestClose={dismissSuccessModal}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
           <View style={{
             backgroundColor: '#FFFFFF',
             borderRadius: 24,
             padding: 32,
             alignItems: 'center',
             width: '100%',
-            maxWidth: 360,
+            maxWidth: 340,
             shadowColor: '#000',
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.15,
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.18,
             shadowRadius: 24,
-            elevation: 10,
+            elevation: 12,
           }}>
-            {/* Checkmark Icon */}
-            <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#DCFCE7', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
-              <Text style={{ fontSize: 40 }}>{'✅'}</Text>
+            <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: '#DCFCE7', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+              <Ionicons name="checkmark-circle" size={72} color="#10B981" />
             </View>
 
-            {/* Title */}
-            <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1E293B', marginBottom: 24, textAlign: 'center' }}>
-              {getText('تم إرسال طلبك بنجاح!', 'Order Placed Successfully!')}
+            <Text style={{ fontSize: 20, fontWeight: '800', color: '#1E293B', marginBottom: 12, textAlign: 'center', lineHeight: 28 }}>
+              {getText('تم الدفع واستلام طلبك بنجاح', 'Payment Confirmed & Order Received!')}
             </Text>
 
-            {/* Order Details */}
-            <View style={{ backgroundColor: '#F1F5F9', borderRadius: 12, paddingVertical: 16, paddingHorizontal: 24, marginBottom: 28, width: '100%', alignItems: 'center', gap: 8 }}>
-              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#334155', textAlign: 'center' }}>
-                {getText(`رقم الطلب: ${displayOrderId}`, `Order Number: ${displayOrderId}`)}
-              </Text>
-              <Text style={{ fontSize: 15, fontWeight: '600', color: primaryColor, textAlign: 'center' }}>
-                {deliveryMode === 'delivery' ? getText('نوع الطلب: توصيل', 'Order Type: Delivery') : getText('نوع الطلب: استلام من الفرع', 'Order Type: Branch Pickup')}
-              </Text>
-            </View>
+            {!!displayOrderId && (
+              <View style={{ backgroundColor: '#F8FAFC', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 18, marginBottom: 16, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#334155', textAlign: 'center' }}>
+                  {getText(`رقم الطلب: ${displayOrderId}`, `Order No: ${displayOrderId}`)}
+                </Text>
+              </View>
+            )}
 
-            {/* Track Order Live Button */}
-            <TouchableOpacity
-              style={{
-                backgroundColor: primaryColor,
-                borderRadius: 14,
-                paddingVertical: 14,
-                paddingHorizontal: 24,
-                width: '100%',
-                alignItems: 'center',
-                marginBottom: 10,
-                flexDirection: isRTL ? 'row-reverse' : 'row',
-                justifyContent: 'center',
-                gap: 8,
-              }}
-              onPress={() => {
-                const oId = placedOrderId;
-                setSuccessOrderNumber(null);
-                if (oId) {
-                  setTrackingOrderId(oId);
-                } else {
-                  setActiveTab('orders');
-                }
-              }}
-            >
-              <Ionicons name="pulse" size={20} color="#FFFFFF" />
-              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
-                {getText('تتبع حالة الطلب مباشرة ⚡', 'Track Order Live ⚡')}
-              </Text>
-            </TouchableOpacity>
+            <Text style={{ fontSize: 13, color: '#64748B', textAlign: 'center', marginBottom: 18 }}>
+              {getText('ستصلك إشعارات فورية بتحديثات حالة طلبك تلقائياً', 'You will receive live toast updates as your order progresses')}
+            </Text>
 
-            {/* Close Button */}
             <TouchableOpacity
-              style={{ backgroundColor: '#F1F5F9', borderRadius: 14, paddingVertical: 12, paddingHorizontal: 24, width: '100%', alignItems: 'center' }}
-              onPress={() => {
-                setCart([]);
-                setSuccessOrderNumber(null);
-                setActiveTab('menu');
-              }}
+              style={{ backgroundColor: '#F1F5F9', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 24 }}
+              onPress={dismissSuccessModal}
+              activeOpacity={0.8}
             >
-              <Text style={{ color: '#64748B', fontSize: 15, fontWeight: '600' }}>
-                {getText('العودة للقائمة الرئيسية', 'Return to Main Menu')}
+              <Text style={{ color: '#475569', fontSize: 14, fontWeight: '700' }}>
+                {getText('إغلاق', 'Close')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -4006,7 +3971,10 @@ export default function CustomerScreen() {
               <TouchableOpacity
                 key={order.id || index}
                 activeOpacity={0.8}
-                onPress={() => setTrackingOrderId(order.id)}
+                onPress={() => {
+                  setTrackingOrderId(order.id);
+                  triggerStatusToast(order, order.status);
+                }}
                 style={styles.orderCard}
               >
                 <View style={[styles.orderHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
@@ -5866,14 +5834,8 @@ export default function CustomerScreen() {
       {/* Meal Customization Modal */}
       {renderMealCustomizationModal()}
 
-      {/* Order Tracking Modal */}
-      {renderOrderTrackingModal()}
-
       {/* Order Success Modal */}
       {renderSuccessModal()}
-
-      {/* Realtime Status Update Toast */}
-      {renderStatusToast()}
     </SafeAreaView>
   );
 }

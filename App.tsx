@@ -1,5 +1,6 @@
 import React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import Toast from 'react-native-toast-message';
 import {
   useFonts,
   Cairo_400Regular,
@@ -25,6 +26,7 @@ export default function App() {
     <RestaurantProvider>
       <SafeAreaProvider>
         <CustomerScreen />
+        <Toast />
       </SafeAreaProvider>
     </RestaurantProvider>
   );
