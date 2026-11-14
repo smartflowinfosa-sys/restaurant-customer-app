@@ -2185,7 +2185,7 @@ export default function CustomerScreen() {
     const showPlaceholderImage = !item.image_url || failedItemImages[item.id];
 
     return (
-      <View style={[styles.menuItem, { flexDirection: rtlRow }]}>
+      <View style={[styles.menuItem, { flexDirection: rtlRow, justifyContent: 'space-between' }]}>
         {/* 1. RIGHT SIDE: Rounded Square Image Container */}
         <TouchableOpacity
           style={styles.menuItemImageContainer}
@@ -2194,7 +2194,7 @@ export default function CustomerScreen() {
         >
           {showPlaceholderImage ? (
             <View style={styles.menuItemPlaceholderBox}>
-              <Ionicons name="image-outline" size={28} color="#356968" />
+              <Ionicons name="image-outline" size={32} color="#356968" />
               <Text style={styles.menuItemPlaceholderText}>
                 {getText('صورة الطبق', 'Dish Photo')}
               </Text>
@@ -2203,7 +2203,7 @@ export default function CustomerScreen() {
             <Image
               source={{ uri: item.image_url }}
               style={styles.menuItemImage}
-              resizeMode="cover"
+              resizeMode="contain"
               onError={() => setFailedItemImages(prev => ({ ...prev, [item.id]: true }))}
             />
           )}
@@ -6377,15 +6377,17 @@ const styles = StyleSheet.create({
   menuItem: {
     backgroundColor: CARD_MINT,
     borderRadius: 26,
+    minHeight: 136,
     marginBottom: 14,
-    padding: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     alignItems: 'center',
     gap: 12,
   },
   menuItemImageContainer: {
-    width: 138,
-    height: 82,
-    borderRadius: 16,
+    width: 110,
+    height: 110,
+    borderRadius: 18,
     backgroundColor: CARD_IMAGE_MINT,
     overflow: 'hidden',
     justifyContent: 'center',
