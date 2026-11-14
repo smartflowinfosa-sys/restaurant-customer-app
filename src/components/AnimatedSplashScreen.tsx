@@ -37,9 +37,9 @@ const TURQUOISE_BRIGHT = '#1DB8C8';
 const TURQUOISE_DEEP = '#0E91A1';
 const MINT_GREEN = '#7FE0DA';
 const MINT_SOFT = '#B5EDE6';
-const ORANGE_BRIGHT = '#F37324';
-const ORANGE_WARM = '#FF9F3E';
-const ORANGE_DEEP = '#DC5910';
+const ORANGE_BRIGHT = '#FFB085';
+const ORANGE_WARM = '#FFCBA4';
+const ORANGE_DEEP = '#F5986B';
 
 const ASMAK_LOGO_SOURCE = require('../../assets/asmak-logo-circle.png');
 

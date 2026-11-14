@@ -59,7 +59,7 @@ export const PILL_MINT = '#D0EBE3';
 export const CARD_MINT = '#E2F3EE';
 export const CARD_IMAGE_MINT = '#BDE3D8';
 export const NAV_MINT = '#D4EEE7';
-export const ACCENT_ORANGE = '#F37324';
+export const ACCENT_ORANGE = '#FFB085';
 export const STAR_GOLD = '#F4B928';
 
 // Turquoise color scheme fallback
@@ -2194,7 +2194,7 @@ export default function CustomerScreen() {
         >
           {showPlaceholderImage ? (
             <View style={styles.menuItemPlaceholderBox}>
-              <Ionicons name="image-outline" size={34} color="#356968" />
+              <Ionicons name="image-outline" size={28} color="#356968" />
               <Text style={styles.menuItemPlaceholderText}>
                 {getText('صورة الطبق', 'Dish Photo')}
               </Text>
@@ -2841,7 +2841,7 @@ export default function CustomerScreen() {
     const amountToMinOrder = Math.max(0, minOrderValue - subtotal);
 
     const sectionTitle = (ar: string, en: string) => (
-      <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginBottom: 14, marginTop: 4 }}>
+      <View style={{ flexDirection: rtlRow, alignItems: 'center', marginBottom: 14, marginTop: 4 }}>
         <View style={{ flex: 1, height: 1, backgroundColor: '#E5E7EB' }} />
         <Text style={{ marginHorizontal: 10, fontSize: 13, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 }}>
           {getText(ar, en)}
@@ -2911,26 +2911,28 @@ export default function CustomerScreen() {
                   <View
                     key={item.cart_item_id || item.id}
                     style={[{
-                      flexDirection: isRTL ? 'row-reverse' : 'row',
+                      flexDirection: rtlRow,
+                      justifyContent: 'space-between',
                       alignItems: 'center',
+                      gap: 12,
                       paddingHorizontal: 14,
                       paddingVertical: 12,
                     }, idx < cart.length - 1 && { borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }]}
                   >
-                    <View style={[{ flex: 1 }, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#1E293B', textAlign: isRTL ? 'right' : 'left' }} numberOfLines={1}>
+                    <View style={[{ flex: 1 }, { alignItems: alignReadingStart }]}>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#1E293B', textAlign: isRTL ? 'right' : 'left', writingDirection: isRTL ? 'rtl' : 'ltr' }} numberOfLines={1}>
                         {language === 'en' ? (item.name_en || item.name || item.name_ar || item.title) : (item.name || item.name_ar || item.title)}
                         {item.weight ? ` (${item.weight} ${getText('كجم', 'kg')})` : ''}
                       </Text>
 
                       {item.selected_options && Object.keys(item.selected_options).length > 0 && (
-                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, textAlign: isRTL ? 'right' : 'left' }}>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, textAlign: isRTL ? 'right' : 'left', writingDirection: isRTL ? 'rtl' : 'ltr' }}>
                           {Object.values(item.selected_options).map(opt => Array.isArray(opt) ? opt.map(o => o.name_ar || o.name).join(', ') : opt.name_ar || opt.name).filter(Boolean).join(', ')}
                         </Text>
                       )}
 
                       {item.notes ? (
-                        <Text style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2, textAlign: isRTL ? 'right' : 'left' }}>
+                        <Text style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2, textAlign: isRTL ? 'right' : 'left', writingDirection: isRTL ? 'rtl' : 'ltr' }}>
                           {getText('ملاحظة:', 'Note:')} {item.notes}
                         </Text>
                       ) : null}
@@ -2941,7 +2943,7 @@ export default function CustomerScreen() {
                         const hasDiscount = !!activePromo && Number(activePromo.discount_percentage) > 0;
                         const originalPrice = item.original_price || item.price;
                         return hasDiscount ? (
-                          <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                          <View style={{ flexDirection: rtlRow, alignItems: 'baseline', gap: 6, marginTop: 4 }}>
                             <Text style={{ fontSize: 13, fontWeight: '700', color: '#10B981' }}>
                               {unitPrice} {getText('ر.س', 'SAR')}
                             </Text>
@@ -2962,7 +2964,7 @@ export default function CustomerScreen() {
                       })()}
                     </View>
                     {/* Unified Smart Counter */}
-                    <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ flexDirection: rtlRow, alignItems: 'center', gap: 6 }}>
                       <TouchableOpacity
                         style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center' }}
                         onPress={() => updateCartItem(item.cart_item_id, item.id, true)}
@@ -3299,7 +3301,7 @@ export default function CustomerScreen() {
 
               {/* ── SECTION 4: Promo Code ── */}
               {sectionTitle('كود الخصم', 'Promo Code')}
-              <View style={[{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 10, marginBottom: 20 }]}>
+              <View style={[{ flexDirection: rtlRow, gap: 10, marginBottom: 20 }]}>
                 <TextInput
                   style={[styles.cartModalNotesInput, { flex: 1, textAlign: isRTL ? 'right' : 'left', minHeight: 48 }]}
                   placeholder={getText('أدخل الكود', 'Enter code')}
@@ -3320,7 +3322,7 @@ export default function CustomerScreen() {
 
               {/* ── SECTION 5: Payment Method ── */}
               {sectionTitle('طريقة الدفع', 'Payment Method')}
-              <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
+              <View style={{ flexDirection: rtlRow, flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
                 {paymentOptions.map((opt) => (
                   <TouchableOpacity
                     key={opt.key}
@@ -3369,7 +3371,7 @@ export default function CustomerScreen() {
                   {sectionTitle('الدفع بالمحفظة', 'Pay with Wallet')}
                   <TouchableOpacity
                     style={[{
-                      flexDirection: isRTL ? 'row-reverse' : 'row',
+                      flexDirection: rtlRow,
                       alignItems: 'center',
                       padding: 16,
                       borderWidth: 1.5,
@@ -3379,11 +3381,11 @@ export default function CustomerScreen() {
                     onPress={() => setUseWalletBalance(!useWalletBalance)}
                   >
                     <Ionicons name="wallet" size={24} color={useWalletBalance ? primaryColor : '#9CA3AF'} />
-                    <View style={{ flex: 1, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
-                      <Text style={{ fontSize: 15, fontWeight: '600', color: useWalletBalance ? primaryColor : '#1E293B' }}>
+                    <View style={{ flex: 1, alignItems: alignReadingStart }}>
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: useWalletBalance ? primaryColor : '#1E293B', textAlign: isRTL ? 'right' : 'left' }}>
                         {getText('الدفع باستخدام رصيد المحفظة', 'Pay with Wallet Balance')}
                       </Text>
-                      <Text style={{ fontSize: 13, color: '#64748B', marginTop: 4 }}>
+                      <Text style={{ fontSize: 13, color: '#64748B', marginTop: 4, textAlign: isRTL ? 'right' : 'left' }}>
                         {getText(`الرصيد المتاح: ${walletBalance.toFixed(2)} ر.س`, `Available Balance: ${walletBalance.toFixed(2)} SAR`)}
                       </Text>
                     </View>
@@ -3399,7 +3401,7 @@ export default function CustomerScreen() {
               {cashbackPercentage > 0 && (
                 <View style={{ marginBottom: 20 }}>
                   {subtotal < minOrderValue ? (
-                    <View style={{ backgroundColor: '#EFF6FF', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#BFDBFE', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ backgroundColor: '#EFF6FF', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#BFDBFE', flexDirection: rtlRow, alignItems: 'center', gap: 10 }}>
                       <Ionicons name="bag-handle" size={22} color="#3B82F6" />
                       <Text style={{ color: '#1D4ED8', fontSize: 13, fontWeight: '600', flex: 1, textAlign: isRTL ? 'right' : 'left' }}>
                         {getText(
@@ -3409,7 +3411,7 @@ export default function CustomerScreen() {
                       </Text>
                     </View>
                   ) : (
-                    <View style={{ backgroundColor: '#ECFDF5', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#A7F3D0', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ backgroundColor: '#ECFDF5', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#A7F3D0', flexDirection: rtlRow, alignItems: 'center', gap: 10 }}>
                       <Ionicons name="gift" size={22} color="#10B981" />
                       <Text style={{ color: '#047857', fontSize: 13, fontWeight: '600', flex: 1, textAlign: isRTL ? 'right' : 'left' }}>
                         {getText(
@@ -3424,22 +3426,22 @@ export default function CustomerScreen() {
 
               {sectionTitle('ملخص الطلب', 'Order Summary')}
               <View style={{ backgroundColor: '#F9FAFB', borderRadius: 14, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: '#E5E7EB' }}>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <Text style={{ color: '#64748B', fontSize: 14 }}>{getText('المجموع الفرعي', 'Subtotal')}</Text>
-                  <Text style={{ color: '#1E293B', fontSize: 14 }}>{`${subtotal} ${getText('ر.س', 'SAR')}`}</Text>
+                <View style={{ flexDirection: rtlRow, justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <Text style={{ color: '#64748B', fontSize: 14, textAlign: isRTL ? 'right' : 'left', writingDirection: isRTL ? 'rtl' : 'ltr' }}>{getText('المجموع الفرعي', 'Subtotal')}</Text>
+                  <Text style={{ color: '#1E293B', fontSize: 14, fontWeight: '600', textAlign: isRTL ? 'left' : 'right', writingDirection: isRTL ? 'rtl' : 'ltr' }}>{`${subtotal} ${getText('ر.س', 'SAR')}`}</Text>
                 </View>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <Text style={{ color: '#64748B', fontSize: 14 }}>{getText('رسوم التوصيل', 'Delivery Fee')}</Text>
-                  <Text style={{ color: '#1E293B', fontSize: 14 }}>{deliveryMode === 'delivery' ? `10 ${getText('ر.س', 'SAR')}` : getText('مجاني', 'Free')}</Text>
+                <View style={{ flexDirection: rtlRow, justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <Text style={{ color: '#64748B', fontSize: 14, textAlign: isRTL ? 'right' : 'left', writingDirection: isRTL ? 'rtl' : 'ltr' }}>{getText('رسوم التوصيل', 'Delivery Fee')}</Text>
+                  <Text style={{ color: '#1E293B', fontSize: 14, fontWeight: '600', textAlign: isRTL ? 'left' : 'right', writingDirection: isRTL ? 'rtl' : 'ltr' }}>{deliveryMode === 'delivery' ? `10 ${getText('ر.س', 'SAR')}` : getText('مجاني', 'Free')}</Text>
                 </View>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <Text style={{ color: '#64748B', fontSize: 14 }}>{getText('الخصم', 'Discount')}</Text>
-                  <Text style={{ color: '#16A34A', fontSize: 14 }}>{`- 0 ${getText('ر.س', 'SAR')}`}</Text>
+                <View style={{ flexDirection: rtlRow, justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={{ color: '#64748B', fontSize: 14, textAlign: isRTL ? 'right' : 'left', writingDirection: isRTL ? 'rtl' : 'ltr' }}>{getText('الخصم', 'Discount')}</Text>
+                  <Text style={{ color: '#16A34A', fontSize: 14, fontWeight: '600', textAlign: isRTL ? 'left' : 'right', writingDirection: isRTL ? 'rtl' : 'ltr' }}>{`- 0 ${getText('ر.س', 'SAR')}`}</Text>
                 </View>
                 <View style={{ height: 1, backgroundColor: '#E5E7EB', marginBottom: 12 }} />
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1E293B' }}>{getText('الإجمالي', 'Total')}</Text>
-                  <Text style={{ fontSize: 17, fontWeight: 'bold', color: primaryColor }}>{`${total} ${getText('ر.س', 'SAR')}`}</Text>
+                <View style={{ flexDirection: rtlRow, justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1E293B', textAlign: isRTL ? 'right' : 'left', writingDirection: isRTL ? 'rtl' : 'ltr' }}>{getText('الإجمالي', 'Total')}</Text>
+                  <Text style={{ fontSize: 17, fontWeight: 'bold', color: primaryColor, textAlign: isRTL ? 'left' : 'right', writingDirection: isRTL ? 'rtl' : 'ltr' }}>{`${total} ${getText('ر.س', 'SAR')}`}</Text>
                 </View>
               </View>
 
@@ -3977,15 +3979,15 @@ export default function CustomerScreen() {
                 }}
                 style={styles.orderCard}
               >
-                <View style={[styles.orderHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+                <View style={[styles.orderHeader, { flexDirection: rtlRow }]}>
                   <Text style={styles.orderNumber}>{getText(`طلب ${orderDisplayNum}`, `Order ${orderDisplayNum}`)} {order.restaurant_branches ? `(${order.restaurant_branches.name})` : ''}</Text>
                   <Text style={[styles.orderStatus, { color: order.status === 'delivered' ? '#10B981' : primaryColor }]}>{order.status}</Text>
                 </View>
                 <Text style={[styles.orderDate, { textAlign: isRTL ? 'right' : 'left' }]}>{new Date(order.created_at).toLocaleDateString(isRTL ? 'ar-SA' : 'en-US')}</Text>
                 <Text style={[styles.orderItems, { textAlign: isRTL ? 'right' : 'left' }]}>{order.order_items?.map((item: any) => item.name).join('، ') || 'عناصر الطلب'}</Text>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                <View style={{ flexDirection: rtlRow, justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                   <Text style={[styles.orderTotal, { textAlign: isRTL ? 'right' : 'left' }]}>{getText(`الإجمالي: ${order.total_amount} ر.س`, `Total: ${order.total_amount} SAR`)}</Text>
-                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 4, backgroundColor: `${primaryColor}15`, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <View style={{ flexDirection: rtlRow, alignItems: 'center', gap: 4, backgroundColor: `${primaryColor}15`, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
                     <Ionicons name="pulse-outline" size={14} color={primaryColor} />
                     <Text style={{ fontSize: 12, fontWeight: '700', color: primaryColor }}>
                       {getText('تتبع مباشر والتفاصيل', 'Live Track & Details')}
@@ -4017,7 +4019,7 @@ export default function CustomerScreen() {
     ) => (
       <TouchableOpacity
         style={[
-          { flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16 },
+          { flexDirection: rtlRow, alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16 },
           !hideBorder && { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }
         ]}
         onPress={onPress}
@@ -4039,7 +4041,7 @@ export default function CustomerScreen() {
     );
 
     const languageToggle = (
-      <View style={[styles.premiumToggleContainer, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+      <View style={[styles.premiumToggleContainer, { flexDirection: rtlRow }]}>
         <TouchableOpacity
           style={[styles.premiumToggleButton, language === 'ar' && { backgroundColor: primaryColor, shadowColor: primaryColor, elevation: 4, shadowOpacity: 0.3, shadowRadius: 4 }]}
           onPress={() => handleLanguageChange('ar')}
@@ -4091,12 +4093,9 @@ export default function CustomerScreen() {
                 style={{ width: 48, height: 48, borderRadius: 24 }}
               />
             </View>
-            <View style={{ flex: 1, marginHorizontal: 12, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
+            <View style={{ flex: 1, marginHorizontal: 12, alignItems: alignReadingStart }}>
               <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1E293B', textAlign: isRTL ? 'right' : 'left' }}>
                 {restaurant?.restaurant_name || restaurant?.name || 'مطعم'}
-              </Text>
-              <Text style={{ fontSize: 13, color: '#64748B', marginTop: 2, textAlign: isRTL ? 'right' : 'left' }}>
-                {getText('تطبيق العميل المعتمد', 'Official Customer App')}
               </Text>
             </View>
             <View style={{ backgroundColor: '#EEF2FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
@@ -4913,7 +4912,7 @@ export default function CustomerScreen() {
                   </G>
                 </Svg>
 
-                {/* Right-Aligned Campaign Headline & Vibrant Orange CTA Pill */}
+                {/* Right-Aligned Campaign Headline */}
                 <View
                   style={[
                     styles.organicBannerTextOverlay,
@@ -4932,13 +4931,6 @@ export default function CustomerScreen() {
                       {slide.subtitle}
                     </Text>
                   )}
-                  <TouchableOpacity
-                    style={styles.organicBannerCtaPill}
-                    onPress={slide.targetAction}
-                    activeOpacity={0.88}
-                  >
-                    <Text style={styles.organicBannerCtaText}>{slide.cta}</Text>
-                  </TouchableOpacity>
                 </View>
               </View>
             );
@@ -6391,9 +6383,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   menuItemImageContainer: {
-    width: 106,
-    height: 106,
-    borderRadius: 20,
+    width: 138,
+    height: 82,
+    borderRadius: 16,
     backgroundColor: CARD_IMAGE_MINT,
     overflow: 'hidden',
     justifyContent: 'center',
@@ -6438,7 +6430,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   discountTagPillText: {
-    color: '#FFFFFF',
+    color: TEXT_TEAL_DARK,
     fontSize: 10.5,
     fontWeight: '800',
     letterSpacing: 0.2,

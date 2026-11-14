@@ -36,7 +36,7 @@ const MEDIUM_GRAY = '#64748B';
 const PLACEHOLDER_TEAL_GRAY = '#5B7B7C';
 const SOFT_MINT_SURFACE = '#E2F3EE';
 const SOFT_MINT_ACCENT = '#D0EBE3';
-const SOFT_PASTEL_CORAL = '#F38454'; // Soft pastel orange (Coral), never harsh or dark
+const SOFT_PASTEL_CORAL = '#FFB085'; // Soft pastel orange, never harsh or dark
 
 // Top Ocean Wave Colors (Dark Teal & Turquoise — matching Home Screen banner)
 const OCEAN_DARK_START = '#076B74';
@@ -625,7 +625,7 @@ export default function LoginScreen({
             {/* Copywriting Block */}
             <View style={styles.copywritingContainer}>
               <Text style={[styles.mainTitle, fontBold]}>
-                {step === 1 ? 'طعم البحر.. واصل لبيتك 🌊' : 'رمز التحقق'}
+                {step === 1 ? 'طعم البحر.. واصل لبيتك' : 'رمز التحقق'}
               </Text>
               <Text style={[styles.subtitle, fontRegular]}>
                 {step === 1
@@ -697,7 +697,7 @@ export default function LoginScreen({
                   <Text style={[styles.inlineErrorText, fontSemiBold]}>{errors.phone}</Text>
                 ) : null}
 
-                {/* Large Pill-Shaped Primary Login / Send OTP Button (Soft Pastel Coral-Orange) */}
+                {/* Large Pill-Shaped Primary Login / Send OTP Button (Soft Pastel Orange) */}
                 <TouchableOpacity
                   style={[styles.loginPillButton, isSendOtpDisabled && styles.buttonDisabled]}
                   onPress={handleSendOTP}
@@ -705,7 +705,7 @@ export default function LoginScreen({
                   activeOpacity={0.88}
                 >
                   {isLoading ? (
-                    <ActivityIndicator color="#FFFFFF" />
+                    <ActivityIndicator color={TEXT_TEAL_DARK} />
                   ) : (
                     <Text style={[styles.loginPillButtonText, fontBold]}>
                       {countdown > 0 ? `إعادة الإرسال بعد ${countdown} ثانية` : 'تسجيل الدخول'}
@@ -757,7 +757,7 @@ export default function LoginScreen({
                   />
                 </View>
 
-                {/* Large Pill-Shaped Confirm Button (Soft Pastel Coral-Orange) */}
+                {/* Large Pill-Shaped Confirm Button (Soft Pastel Orange) */}
                 <TouchableOpacity
                   style={[styles.loginPillButton, isBusy && styles.buttonDisabled]}
                   onPress={handleVerifyOtp}
@@ -765,7 +765,7 @@ export default function LoginScreen({
                   activeOpacity={0.88}
                 >
                   {isLoading ? (
-                    <ActivityIndicator color="#FFFFFF" />
+                    <ActivityIndicator color={TEXT_TEAL_DARK} />
                   ) : (
                     <Text style={[styles.loginPillButtonText, fontBold]}>تأكيد الدخول</Text>
                   )}
@@ -1009,7 +1009,7 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   loginPillButtonText: {
-    color: '#FFFFFF',
+    color: TEXT_TEAL_DARK,
     fontSize: 17.5,
   },
   resendPillButton: {
