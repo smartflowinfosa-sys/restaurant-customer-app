@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Image,
   ScrollView,
-  SafeAreaView,
+  StatusBar as RNStatusBar,
   ActivityIndicator,
   Modal,
   Dimensions,
@@ -27,7 +27,7 @@ import {
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Circle, Path, Defs, LinearGradient, Stop, ClipPath, G } from 'react-native-svg';
@@ -867,13 +867,76 @@ export default function CustomerScreen() {
   const [resumeCheckout, setResumeCheckout] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [isAddAddressModalVisible, setIsAddAddressModalVisible] = useState(false);
-  const [selectedAddressType, setSelectedAddressType] = useState('Home');
+  const [selectedAddressType, setSelectedAddressType] = useState('المنزل');
   const [manualAddress, setManualAddress] = useState({ neighborhood: '', street: '', building: '' });
   const [addressEntryMode, setAddressEntryMode] = useState<'selection' | 'manual'>('selection');
   const [isSavingAddress, setIsSavingAddress] = useState(false);
-  const [addressLabel, setAddressLabel] = useState<'البيت' | 'العمل' | 'أخرى'>('البيت');
+  const [addressLabel, setAddressLabel] = useState<'المنزل' | 'العمل' | 'أخرى'>('المنزل');
   const [isDefaultAddress, setIsDefaultAddress] = useState(false);
   const [addressPhotoUri, setAddressPhotoUri] = useState<string | null>(null);
+  const [savedAddresses, setSavedAddresses] = useState<any[]>([]);
+  const [loadingSavedAddresses, setLoadingSavedAddresses] = useState<boolean>(false);
+
+  const SAVED_ADDRESSES_STORAGE_KEY = '@restaurant_saved_addresses';
+
+  const getValidUserId = useCallback(async (): Promise<string | null> => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let uid: string | undefined = session?.user?.id;
+    if (!uid || !uuidRegex.test(uid) || uid === '00000000-0000-0000-0000-000000000000') {
+      try {
+        const { data } = await supabase.auth.getUser();
+        uid = data?.user?.id;
+      } catch {
+        // Ignore auth lookup errors
+      }
+    }
+    if (typeof uid === 'string' && uuidRegex.test(uid) && uid !== '00000000-0000-0000-0000-000000000000') {
+      return uid;
+    }
+    return null;
+  }, [session?.user?.id]);
+
+  const fetchSavedAddresses = useCallback(async () => {
+    try {
+      setLoadingSavedAddresses(true);
+      const userId = await getValidUserId();
+      if (userId) {
+        const { data, error } = await supabase
+          .from('user_addresses')
+          .select('*')
+          .eq('user_id', userId)
+          .order('is_default', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        if (!error && Array.isArray(data)) {
+          setSavedAddresses(data);
+          await AsyncStorage.setItem(SAVED_ADDRESSES_STORAGE_KEY, JSON.stringify(data)).catch(() => {});
+          return;
+        }
+        if (error) {
+          console.warn('[Address] Fetch warning:', error.message);
+        }
+      }
+
+      const cached = await AsyncStorage.getItem(SAVED_ADDRESSES_STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          setSavedAddresses(parsed);
+        }
+      }
+    } catch (err) {
+      console.warn('[Address] Fetch failed:', err);
+    } finally {
+      setLoadingSavedAddresses(false);
+    }
+  }, [getValidUserId]);
+
+  useEffect(() => {
+    if (activeTab === 'more' || activeSection === 'SavedAddresses' || session?.user?.id) {
+      fetchSavedAddresses();
+    }
+  }, [activeTab, activeSection, session?.user?.id, fetchSavedAddresses]);
 
   const withTimeout = <T,>(promise: Promise<T>, ms = 3000, label = 'operation'): Promise<T> =>
     Promise.race([
@@ -1539,9 +1602,11 @@ export default function CustomerScreen() {
   useEffect(() => {
     if (showLocationModal) {
       setLocationLoading(true);
+      setMapRegion(null);
+      latestMapRegionRef.current = null;
       (async () => {
         try {
-          let { status } = await Location.requestForegroundPermissionsAsync();
+          const { status } = await Location.requestForegroundPermissionsAsync();
           if (status !== 'granted') {
             console.log('Location permission denied');
             const fallbackRegion: Region = {
@@ -1554,26 +1619,42 @@ export default function CustomerScreen() {
             setMapRegion(fallbackRegion);
             return;
           }
-          let location = await withTimeout(
-            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-            3000,
-            'getCurrentPositionAsync'
-          );
+
+          let coords: { latitude: number; longitude: number } | null = null;
+          try {
+            const location = await withTimeout(
+              Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+              5000,
+              'getCurrentPositionAsync'
+            );
+            coords = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            };
+          } catch (gpsErr) {
+            console.warn('[Location] getCurrentPositionAsync timed out, checking last known position:', gpsErr);
+            const lastKnown = await Location.getLastKnownPositionAsync({}).catch(() => null);
+            if (lastKnown?.coords) {
+              coords = {
+                latitude: lastKnown.coords.latitude,
+                longitude: lastKnown.coords.longitude,
+              };
+            }
+          }
+
+          const targetCoords = coords || DEFAULT_COORDS;
           const resolvedRegion: Region = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
+            latitude: targetCoords.latitude,
+            longitude: targetCoords.longitude,
             latitudeDelta: 0.01,
             longitudeDelta: 0.01,
           };
           latestMapRegionRef.current = resolvedRegion;
           setMapRegion(resolvedRegion);
-          setUserLocation({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          });
+          setUserLocation(targetCoords);
+          mapRef.current?.animateToRegion(resolvedRegion, 300);
         } catch (error) {
-          console.warn('Error or timeout getting location:', error);
-          // Fallback to default coordinates if location fails or times out
+          console.warn('Error getting location on map open:', error);
           const fallbackRegion: Region = {
             latitude: DEFAULT_COORDS.latitude,
             longitude: DEFAULT_COORDS.longitude,
@@ -3601,7 +3682,7 @@ export default function CustomerScreen() {
         <ScrollView
           style={styles.menuScrollRoot}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.menuScrollContent}
+          contentContainerStyle={[styles.menuScrollContent, { paddingBottom: 120 }]}
           keyboardShouldPersistTaps="handled"
         >
           {/* Decorative Organic Background Shapes (Material Expressive Mockup) */}
@@ -3746,7 +3827,11 @@ export default function CustomerScreen() {
       </View>
 
       {/* Content */}
-      <ScrollView style={styles.offersContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.offersContent}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
+      >
         {offersSection === 'offers' ? (
           <View style={styles.offersSection}>
             {offers.length === 0 ? (
@@ -3806,7 +3891,11 @@ export default function CustomerScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-      <ScrollView style={styles.ordersContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.ordersContent}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
+      >
         {ordersLoading ? (
           <ActivityIndicator size="large" color={primaryColor} style={{ marginTop: 40 }} />
         ) : orders.length === 0 ? (
@@ -3911,7 +4000,7 @@ export default function CustomerScreen() {
           {getText('المزيد', 'More')}
         </Text>
 
-        <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+        <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
 
           {/* Tenant Identity Header (Drawer/Sidebar dynamic branding) */}
           <View style={{
@@ -3956,7 +4045,22 @@ export default function CustomerScreen() {
           {sectionTitle('حسابي', 'My Account')}
           <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, marginHorizontal: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 }}>
             {renderSettingItem('person-outline', 'الملف الشخصي', 'Profile', () => setIsProfileModalVisible(true))}
-            {renderSettingItem('location-outline', 'العناوين المحفوظة', 'Saved Addresses', () => setActiveSection('SavedAddresses'))}
+            {renderSettingItem(
+              'location-outline',
+              'العناوين المحفوظة',
+              'Saved Addresses',
+              () => setActiveSection('SavedAddresses'),
+              <View style={{ flexDirection: rtlRow, alignItems: 'center', gap: 6 }}>
+                {savedAddresses.length > 0 && (
+                  <View style={{ backgroundColor: `${primaryColor}18`, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: primaryColor }}>
+                      {savedAddresses.length}
+                    </Text>
+                  </View>
+                )}
+                <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#CBD5E1" />
+              </View>
+            )}
             {renderSettingItem('notifications-outline', 'الإشعارات', 'Notifications', () => toggleNotifications(!pushEnabled), <Switch value={pushEnabled} onValueChange={toggleNotifications} trackColor={{ false: '#E2E8F0', true: primaryColor }} thumbColor="#FFFFFF" />)}
             {renderSettingItem('wallet-outline', 'المحفظة والرصيد', 'Wallet & Balance', () => {
               if (!session) setShowAuthModal(true);
@@ -4260,28 +4364,43 @@ export default function CustomerScreen() {
   };
 
   const handleSaveManualAddress = async () => {
-    if (!session?.user?.id) {
-      alert('يجب تسجيل الدخول لحفظ العناوين');
+    const userId = await getValidUserId();
+    if (!userId) {
+      RNAlert.alert('تنبيه', 'يجب تسجيل الدخول لحفظ العناوين');
       return;
     }
     try {
-      const fullAddress = `${manualAddress.neighborhood}, ${manualAddress.street}, ${manualAddress.building}`;
-      await supabase.from('user_addresses').insert({
-        user_id: session.user.id,
+      const fullAddress = [manualAddress.neighborhood, manualAddress.street, manualAddress.building]
+        .filter(Boolean)
+        .join('، ');
+      const newRecord = {
+        user_id: userId,
+        label: selectedAddressType,
         address_type: selectedAddressType,
-        address_text: fullAddress
+        address_text: fullAddress,
+      };
+      const { data: insertedRow, error } = await supabase
+        .from('user_addresses')
+        .insert(newRecord)
+        .select()
+        .single();
+      if (error) {
+        console.warn('[Address] Manual insert warning:', error.message);
+      }
+      const savedItem = insertedRow || { id: `local_${Date.now()}`, ...newRecord, created_at: new Date().toISOString() };
+      setSavedAddresses((prev) => {
+        const next = [savedItem, ...prev];
+        AsyncStorage.setItem(SAVED_ADDRESSES_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
       });
+      await fetchSavedAddresses();
       setIsAddAddressModalVisible(false);
       setAddressEntryMode('selection');
       setManualAddress({ neighborhood: '', street: '', building: '' });
-      if (typeof window !== 'undefined' && (window as any).alert) {
-        (window as any).alert('تم حفظ العنوان بنجاح');
-      } else {
-        alert('تم حفظ العنوان بنجاح');
-      }
+      RNAlert.alert('تم', 'تم حفظ العنوان بنجاح');
     } catch (e) {
       console.error(e);
-      alert('حدث خطأ أثناء حفظ العنوان');
+      RNAlert.alert('خطأ', 'حدث خطأ أثناء حفظ العنوان');
     }
   };
 
@@ -4347,47 +4466,107 @@ export default function CustomerScreen() {
             </View>
           )}
           {activeSection === 'SavedAddresses' && (
-            <View style={{ marginTop: 10 }}>
-              <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16, textAlign: isRTL ? 'right' : 'left' }}>{getText('العناوين المحفوظة', 'Saved Addresses')}</Text>
-              
-              {/* Home Slot */}
-              <View style={{ marginBottom: 12, padding: 16, backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' }}>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Ionicons name="home-outline" size={20} color={primaryColor} />
-                  <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, fontWeight: 'bold', textAlign: isRTL ? 'right' : 'left' }}>{getText('المنزل', 'Home')}</Text>
-                </View>
-                <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
-                  <TouchableOpacity style={{ marginTop: 4 }} onPress={() => { setActiveSection(null); setSelectedAddressType('Home'); setIsAddAddressModalVisible(true); }}>
-                    <Text style={{ color: primaryColor, fontWeight: '600', fontSize: 14 }}>+ {getText('إضافة عنوان', 'Add Address')}</Text>
-                  </TouchableOpacity>
-                </View>
+            <View style={{ marginTop: 6, maxHeight: 460 }}>
+              <View style={{ flexDirection: rtlRow, alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1E293B', textAlign: isRTL ? 'right' : 'left' }}>
+                  {getText('العناوين المحفوظة', 'Saved Addresses')}
+                </Text>
+                <TouchableOpacity onPress={() => setActiveSection(null)}>
+                  <Ionicons name="close" size={24} color="#64748B" />
+                </TouchableOpacity>
               </View>
 
-              {/* Work Slot */}
-              <View style={{ marginBottom: 12, padding: 16, backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' }}>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Ionicons name="briefcase-outline" size={20} color={primaryColor} />
-                  <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, fontWeight: 'bold', textAlign: isRTL ? 'right' : 'left' }}>{getText('العمل', 'Work')}</Text>
+              {loadingSavedAddresses ? (
+                <ActivityIndicator size="large" color={primaryColor} style={{ marginVertical: 28 }} />
+              ) : savedAddresses.length === 0 ? (
+                <View style={{ alignItems: 'center', paddingVertical: 24, backgroundColor: '#F8FAFC', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 14 }}>
+                  <Ionicons name="location-outline" size={40} color="#94A3B8" />
+                  <Text style={{ fontSize: 15, color: '#64748B', marginTop: 10, fontWeight: '600' }}>
+                    {getText('لا توجد عناوين محفوظة بعد', 'No saved addresses yet')}
+                  </Text>
                 </View>
-                <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
-                  <TouchableOpacity style={{ marginTop: 4 }} onPress={() => { setActiveSection(null); setSelectedAddressType('Work'); setIsAddAddressModalVisible(true); }}>
-                    <Text style={{ color: primaryColor, fontWeight: '600', fontSize: 14 }}>+ {getText('إضافة عنوان', 'Add Address')}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+              ) : (
+                <ScrollView style={{ maxHeight: 310, marginBottom: 12 }} showsVerticalScrollIndicator={false}>
+                  {savedAddresses.map((addr: any, idx: number) => {
+                    const addrTitle = addr.label || addr.address_type || getText('عنوان محفوظ', 'Saved Address');
+                    const addrIcon =
+                      addrTitle === 'العمل' || addrTitle === 'Work'
+                        ? 'briefcase-outline'
+                        : addrTitle === 'أخرى' || addrTitle === 'Other'
+                          ? 'location-outline'
+                          : 'home-outline';
+                    return (
+                      <TouchableOpacity
+                        key={addr.id || idx}
+                        activeOpacity={0.85}
+                        onPress={() => {
+                          if (addr.address_text) {
+                            setDeliveryAddress(addr.address_text);
+                            setCheckoutDeliveryAddress(addr.address_text);
+                          }
+                          if (typeof addr.latitude === 'number' && typeof addr.longitude === 'number') {
+                            setSelectedLocation({ latitude: addr.latitude, longitude: addr.longitude });
+                          }
+                          setActiveSection(null);
+                        }}
+                        style={{
+                          marginBottom: 10,
+                          padding: 14,
+                          backgroundColor: '#F8FAFC',
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: addr.is_default ? primaryColor : '#E2E8F0',
+                        }}
+                      >
+                        <View style={{ flexDirection: rtlRow, alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <View style={{ flexDirection: rtlRow, alignItems: 'center', gap: 8 }}>
+                            <Ionicons name={addrIcon as any} size={20} color={primaryColor} />
+                            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1E293B' }}>
+                              {addrTitle}
+                            </Text>
+                          </View>
+                          {addr.is_default && (
+                            <View style={{ backgroundColor: `${primaryColor}18`, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: primaryColor }}>
+                                {getText('افتراضي', 'Default')}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <View style={{ flexDirection: rtlRow, alignItems: 'center', gap: 10 }}>
+                          {addr.photo_url ? (
+                            <Image source={{ uri: addr.photo_url }} style={{ width: 42, height: 42, borderRadius: 8, backgroundColor: '#E2E8F0' }} resizeMode="cover" />
+                          ) : null}
+                          <Text style={{ flex: 1, fontSize: 13.5, color: '#475569', textAlign: isRTL ? 'right' : 'left' }}>
+                            {addr.address_text || getText('موقع محدد على الخريطة', 'Pinned map location')}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
 
-              {/* Rest House Slot */}
-              <View style={{ marginBottom: 12, padding: 16, backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' }}>
-                <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Ionicons name="cafe-outline" size={20} color={primaryColor} />
-                  <Text style={{ flex: 1, marginHorizontal: 12, fontSize: 16, fontWeight: 'bold', textAlign: isRTL ? 'right' : 'left' }}>{getText('الاستراحة', 'Rest House')}</Text>
-                </View>
-                <View style={{ alignItems: isRTL ? 'flex-start' : 'flex-end' }}>
-                  <TouchableOpacity style={{ marginTop: 4 }} onPress={() => { setActiveSection(null); setSelectedAddressType('Rest House'); setIsAddAddressModalVisible(true); }}>
-                    <Text style={{ color: primaryColor, fontWeight: '600', fontSize: 14 }}>+ {getText('إضافة عنوان', 'Add Address')}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: primaryColor,
+                  paddingVertical: 14,
+                  borderRadius: 12,
+                  flexDirection: rtlRow,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+                onPress={() => {
+                  setActiveSection(null);
+                  setShowLocationModal(true);
+                }}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+                <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '700' }}>
+                  {getText('إضافة عنوان جديد', 'Add New Address')}
+                </Text>
+              </TouchableOpacity>
             </View>
           )}
           {activeSection === 'Contact' && (
@@ -4560,7 +4739,7 @@ export default function CustomerScreen() {
     const slides = dynamicSlides.slice(0, 3);
     const effectiveShellWidth = Platform.OS === 'web' && windowWidth > 540 ? 460 : windowWidth;
     const slideWidth = bannerMeasuredWidth > 0 ? bannerMeasuredWidth : Math.max(280, effectiveShellWidth - 32);
-    const slideHeight = Math.max(174, Math.min(206, Math.round(slideWidth * 0.485)));
+    const slideHeight = 140;
 
     return (
       <View
@@ -4594,14 +4773,14 @@ export default function CustomerScreen() {
             return (
               <View
                 key={slide.id}
-                style={{ width: slideWidth, height: slideHeight, position: 'relative' }}
+                style={{ width: slideWidth, height: slideHeight, position: 'relative', borderRadius: 20, overflow: 'hidden' }}
               >
                 {/* Asymmetric Organic Wavy Top & Bottom SVG Silhouette + Multi-Layer Ocean Wave */}
                 <Svg
                   width={slideWidth}
                   height={slideHeight}
                   viewBox="0 0 380 184"
-                  preserveAspectRatio="none"
+                  preserveAspectRatio="xMidYMid slice"
                   style={StyleSheet.absoluteFill}
                 >
                   <Defs>
@@ -4996,12 +5175,16 @@ export default function CustomerScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={styles.container}
+      edges={Platform.OS === 'android' ? ['left', 'right', 'bottom'] : undefined}
+    >
       <StatusBar style="dark" />
 
       <View
         style={[
           styles.mobileAppShell,
+          { paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight || insets.top || 0) : 0 },
           Platform.OS === 'web' && windowWidth > 540 && styles.mobileAppShellDesktop,
         ]}
       >
@@ -5102,9 +5285,9 @@ export default function CustomerScreen() {
               </View>
 
               {/* Address Type Chips Row */}
-              <View style={[styles.addressChipsRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+              <View style={[styles.addressChipsRow, { direction: 'ltr', flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
                 {([
-                  { key: 'البيت' as const, labelEn: 'Home', icon: 'home-outline' as const },
+                  { key: 'المنزل' as const, labelEn: 'Home', icon: 'home-outline' as const },
                   { key: 'العمل' as const, labelEn: 'Work', icon: 'briefcase-outline' as const },
                   { key: 'أخرى' as const, labelEn: 'Other', icon: 'location-outline' as const },
                 ]).map((chip) => {
@@ -5115,7 +5298,7 @@ export default function CustomerScreen() {
                       onPress={() => setAddressLabel(chip.key)}
                       style={[
                         styles.addressChip,
-                        { flexDirection: isRTL ? 'row-reverse' : 'row' },
+                        { flexDirection: rtlRow },
                         isActive && { borderColor: primaryColor, backgroundColor: `${primaryColor}15` },
                       ]}
                     >
@@ -5264,15 +5447,19 @@ export default function CustomerScreen() {
                     }
 
                     // Persist address to user_addresses if authenticated with a real user UUID
-                    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                    const rawUid = session?.user?.id;
-                    const validUserId =
-                      typeof rawUid === 'string' &&
-                      uuidRegex.test(rawUid) &&
-                      rawUid !== '00000000-0000-0000-0000-000000000000'
-                        ? rawUid
-                        : null;
+                    const validUserId = await getValidUserId();
+                    const newAddressPayload = {
+                      user_id: validUserId,
+                      label: addressLabel,
+                      address_type: addressLabel,
+                      address_text: resolvedAddress,
+                      is_default: isDefaultAddress,
+                      photo_url: uploadedPhotoUrl,
+                      latitude: lat,
+                      longitude: lng,
+                    };
 
+                    let insertedRecord: any = null;
                     if (validUserId) {
                       try {
                         if (isDefaultAddress) {
@@ -5281,22 +5468,36 @@ export default function CustomerScreen() {
                             .update({ is_default: false })
                             .eq('user_id', validUserId);
                         }
-                        const { error: addrError } = await supabase.from('user_addresses').insert({
-                          user_id: validUserId,
-                          label: addressLabel,
-                          address_type: addressLabel,
-                          address_text: resolvedAddress,
-                          is_default: isDefaultAddress,
-                          photo_url: uploadedPhotoUrl,
-                          latitude: lat,
-                          longitude: lng,
-                        });
+                        const { data: insertedRow, error: addrError } = await supabase
+                          .from('user_addresses')
+                          .insert(newAddressPayload)
+                          .select()
+                          .single();
                         if (addrError) {
                           console.warn('[Address] Save warning:', addrError.message);
+                        } else {
+                          insertedRecord = insertedRow;
                         }
                       } catch (saveErr) {
                         console.warn('[Address] Save failed:', saveErr);
                       }
+                    }
+
+                    const fallbackRecord = insertedRecord || {
+                      id: `local_${Date.now()}`,
+                      ...newAddressPayload,
+                      created_at: new Date().toISOString(),
+                    };
+                    setSavedAddresses((prev) => {
+                      const base = isDefaultAddress
+                        ? prev.map((item) => ({ ...item, is_default: false }))
+                        : prev;
+                      const next = [fallbackRecord, ...base];
+                      AsyncStorage.setItem(SAVED_ADDRESSES_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+                      return next;
+                    });
+                    if (validUserId && insertedRecord) {
+                      fetchSavedAddresses();
                     }
                   } catch (err) {
                     console.error('[Location] Unexpected error setting address:', err);
@@ -5669,20 +5870,21 @@ const styles = StyleSheet.create({
   },
   organicBannerSection: {
     width: '100%',
-    marginBottom: 10,
+    marginTop: 4,
+    marginBottom: 12,
   },
   organicBannerTextOverlay: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    right: 22,
+    right: 20,
     left: '26%',
     justifyContent: 'center',
-    gap: 10,
-    paddingBottom: 4,
+    gap: 6,
+    paddingBottom: 2,
   },
   organicBannerHeadline: {
-    fontSize: 30,
+    fontSize: 24,
     fontWeight: '900',
     color: '#FFFFFF',
     textAlign: 'right',
