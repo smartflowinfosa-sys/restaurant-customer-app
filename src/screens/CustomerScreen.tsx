@@ -2633,7 +2633,7 @@ export default function CustomerScreen() {
         items: itemsJson,
         total_amount: grandTotal,
         delivery_type: deliveryMode,
-        payment_method: 'card',
+        payment_method: paymentMethod,
         branch_name: branchName,
         branch_id: branchId,
         delivery_address: resolvedDeliveryAddress,
@@ -2826,7 +2826,8 @@ export default function CustomerScreen() {
 
     const paymentOptions: { key: 'cash' | 'applepay' | 'mada' | 'card'; labelAr: string; labelEn: string; icon: string }[] = [
       { key: 'applepay', labelAr: 'Apple Pay', labelEn: 'Apple Pay', icon: 'apple-pay' },
-      { key: 'card', labelAr: 'البطاقة / مدى', labelEn: 'Mada / Credit Card', icon: 'credit-card' },
+      { key: 'mada', labelAr: 'مدى', labelEn: 'Mada', icon: 'credit-card' },
+      { key: 'card', labelAr: 'بطاقة ائتمان', labelEn: 'Credit Card', icon: 'credit-card' },
       { key: 'cash', labelAr: 'كاش', labelEn: 'Cash', icon: 'money-bill-wave' },
     ];
 
@@ -2846,13 +2847,27 @@ export default function CustomerScreen() {
             activeOpacity={1}
             onPress={() => setIsCartModalVisible(false)}
           />
-          <View style={[styles.cartModalContent, { maxHeight: '92%' }]}>
+          <View style={[styles.cartModalContent, { height: '88%', maxHeight: '92%' }]}>
 
             {/* ── Header ── */}
-            <View style={[styles.cartModalHeader, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-              <Text style={styles.cartModalTitle}>{getText('إتمام الطلب', 'Checkout')}</Text>
-              <TouchableOpacity onPress={() => setIsCartModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#1E293B" />
+            <View style={[styles.cartModalHeader, { flexDirection: rtlRow }]}>
+              <Text style={styles.cartModalTitle}>{getText('ملخص الطلب والدفع', 'Order Summary')}</Text>
+              <TouchableOpacity
+                onPress={() => setIsCartModalVisible(false)}
+                style={{
+                  flexDirection: rtlRow,
+                  alignItems: 'center',
+                  gap: 4,
+                  backgroundColor: '#F1F5F9',
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderRadius: 999,
+                }}
+              >
+                <Ionicons name="close" size={18} color="#1E293B" />
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#1E293B' }}>
+                  {getText('إغلاق', 'Close')}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -3132,13 +3147,56 @@ export default function CustomerScreen() {
                   </Text>
                 ) : null}
                 {deliveryMode === 'delivery' && (
-                  <TextInput
-                    style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48, borderColor: '#E5E7EB' }]}
-                    placeholder={getText('عنوان التوصيل (الحي، الشارع، رقم المبنى)', 'Delivery Address (District, Street, Building)')}
-                    placeholderTextColor="#9CA3AF"
-                    value={checkoutDeliveryAddress}
-                    onChangeText={setCheckoutDeliveryAddress}
-                  />
+                  <View style={{ gap: 8 }}>
+                    {savedAddresses.length > 0 && (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{ flexDirection: rtlRow, gap: 8, paddingVertical: 2 }}
+                      >
+                        {savedAddresses.map((addr: any, idx: number) => {
+                          const addrTitle = addr.label || addr.address_type || getText('عنوان', 'Address');
+                          const isSelectedAddr = checkoutDeliveryAddress === addr.address_text;
+                          return (
+                            <TouchableOpacity
+                              key={addr.id || idx}
+                              onPress={() => {
+                                const text = addr.address_text || addrTitle;
+                                setCheckoutDeliveryAddress(text);
+                                setDeliveryAddress(text);
+                                if (typeof addr.latitude === 'number' && typeof addr.longitude === 'number') {
+                                  setSelectedLocation({ latitude: addr.latitude, longitude: addr.longitude });
+                                }
+                              }}
+                              style={{
+                                flexDirection: rtlRow,
+                                alignItems: 'center',
+                                gap: 6,
+                                paddingHorizontal: 12,
+                                paddingVertical: 7,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: isSelectedAddr ? primaryColor : '#E2E8F0',
+                                backgroundColor: isSelectedAddr ? `${primaryColor}15` : '#F8FAFC',
+                              }}
+                            >
+                              <Ionicons name="location-outline" size={14} color={isSelectedAddr ? primaryColor : '#64748B'} />
+                              <Text style={{ fontSize: 12.5, fontWeight: '600', color: isSelectedAddr ? primaryColor : '#334155' }}>
+                                {addrTitle}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+                    <TextInput
+                      style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 48, borderColor: '#E5E7EB' }]}
+                      placeholder={getText('عنوان التوصيل (الحي، الشارع، رقم المبنى)', 'Delivery Address (District, Street, Building)')}
+                      placeholderTextColor="#9CA3AF"
+                      value={checkoutDeliveryAddress}
+                      onChangeText={setCheckoutDeliveryAddress}
+                    />
+                  </View>
                 )}
                 <TextInput
                   style={[styles.cartModalNotesInput, { textAlign: isRTL ? 'right' : 'left', minHeight: 80 }]}
@@ -3180,7 +3238,7 @@ export default function CustomerScreen() {
                     onPress={() => setPaymentMethod(opt.key)}
                     style={[{
                       flex: 1,
-                      minWidth: '28%',
+                      minWidth: '45%',
                       paddingVertical: 12,
                       paddingHorizontal: 8,
                       borderRadius: 12,
@@ -3193,13 +3251,16 @@ export default function CustomerScreen() {
                       : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
                   >
                     {opt.key === 'applepay' && (
-                      <FontAwesome5 name="apple-pay" size={28} color="#000" />
+                      <FontAwesome5 name="apple-pay" size={26} color="#000" />
+                    )}
+                    {opt.key === 'mada' && (
+                      <FontAwesome5 name="credit-card" size={22} color="#004B87" />
                     )}
                     {opt.key === 'card' && (
-                      <FontAwesome5 name="credit-card" size={24} color="#1a1f71" />
+                      <FontAwesome5 name="credit-card" size={22} color="#1a1f71" />
                     )}
                     {opt.key === 'cash' && (
-                      <FontAwesome5 name="money-bill-wave" size={24} color="#28a745" />
+                      <FontAwesome5 name="money-bill-wave" size={22} color="#28a745" />
                     )}
                     <Text style={{
                       fontSize: 13,
@@ -3330,7 +3391,7 @@ export default function CustomerScreen() {
             </ScrollView>
 
             {/* ── Submit Button ── */}
-            <View style={[styles.cartModalFooter, { paddingTop: 12 }]}>
+            <View style={[styles.cartModalFooter, { paddingTop: 12, paddingBottom: Math.max(insets.bottom, 12) }]}>
               <TouchableOpacity
                 style={[styles.cartCheckoutButton, { backgroundColor: primaryColor }, isSubmitting && { opacity: 0.7 }]}
                 onPress={() => {
@@ -3361,8 +3422,8 @@ export default function CustomerScreen() {
                     <Text style={styles.cartCheckoutButtonText}>
                       {session
                         ? (paymentMethod === 'cash'
-                            ? getText('تأكيد وإرسال الطلب (كاش)', 'Confirm Order (Cash)')
-                            : getText('ادفع الآن', 'Pay Now'))
+                            ? getText('إرسال الطلب (كاش)', 'Submit Order (Cash)')
+                            : getText('إرسال الطلب / ادفع الآن', 'Submit Order / Pay Now'))
                         : getText('تسجيل الدخول للمتابعة', 'Login to Continue')}
                     </Text>
                   </View>
