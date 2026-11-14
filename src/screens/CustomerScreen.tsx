@@ -2963,27 +2963,39 @@ export default function CustomerScreen() {
 
               {/* ── SECTION 2: Order Mode ── */}
               {sectionTitle('طريقة الاستلام', 'Fulfillment')}
-              <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 10, marginBottom: 14 }}>
+              <View
+                style={{
+                  alignSelf: 'center',
+                  width: '80%',
+                  maxWidth: 320,
+                  flexDirection: rtlRow,
+                  backgroundColor: '#F1F5F9',
+                  borderRadius: 12,
+                  padding: 4,
+                  gap: 6,
+                  marginBottom: 14,
+                }}
+              >
                 {(['delivery', 'pickup'] as const).map((mode) => (
                   <TouchableOpacity
                     key={mode}
                     onPress={() => setDeliveryMode(mode)}
                     style={[{
-                      flex: 1,
-                      paddingVertical: 12,
-                      borderRadius: 12,
-                      borderWidth: 2,
+                      width: '49%',
+                      paddingVertical: 10,
+                      paddingHorizontal: 10,
+                      borderRadius: 10,
                       alignItems: 'center',
-                      flexDirection: 'row',
+                      flexDirection: rtlRow,
                       justifyContent: 'center',
                       gap: 6,
                     }, deliveryMode === mode
-                      ? { backgroundColor: primaryColor, borderColor: primaryColor }
-                      : { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB' }]}
+                      ? { backgroundColor: primaryColor }
+                      : { backgroundColor: 'transparent' }]}
                   >
                     <Ionicons
                       name={mode === 'delivery' ? 'car-outline' : 'storefront-outline'}
-                      size={18}
+                      size={17}
                       color={deliveryMode === mode ? '#FFFFFF' : '#64748B'}
                     />
                     <Text style={{ fontSize: 14, fontWeight: '600', color: deliveryMode === mode ? '#FFFFFF' : '#64748B' }}>
@@ -2994,7 +3006,44 @@ export default function CustomerScreen() {
               </View>
 
               {deliveryMode === 'delivery' ? (
-                <View style={{ height: 250, width: '100%', borderRadius: 16, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#E5E7EB', position: 'relative' }}>
+                <View style={{ marginBottom: 20, gap: 10 }}>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setIsCartModalVisible(false);
+                      setTimeout(() => setShowLocationModal(true), 250);
+                    }}
+                    style={{
+                      width: '100%',
+                      flexDirection: rtlRow,
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      backgroundColor: '#F8FAFC',
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: '#E2E8F0',
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      gap: 10,
+                    }}
+                  >
+                    <Ionicons name="location-outline" size={20} color={primaryColor} />
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: '#1E293B',
+                        textAlign: isRTL ? 'right' : 'left',
+                      }}
+                      numberOfLines={1}
+                    >
+                      {checkoutDeliveryAddress || deliveryAddress || getText('تحديد موقع التوصيل على الخريطة', 'Select delivery location on map')}
+                    </Text>
+                    <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={18} color="#64748B" />
+                  </TouchableOpacity>
+
+                  <View style={{ height: 220, width: '100%', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#E5E7EB', position: 'relative' }}>
                   {Platform.OS === 'web' ? (
                     <View style={{ flex: 1, backgroundColor: '#eee', borderRadius: 10, overflow: 'hidden' }}>
                       {/* @ts-ignore */}
@@ -3065,14 +3114,15 @@ export default function CustomerScreen() {
                   >
                     <Ionicons name="navigate-sharp" size={24} color="#007bff" />
                   </TouchableOpacity>
+                  </View>
                 </View>
               ) : (
                 <View style={{ marginBottom: 20 }}>
-                  <Text style={{ fontSize: 13, color: '#64748B', marginBottom: 8, textAlign: isRTL ? 'right' : 'left' }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#475569', marginBottom: 10, textAlign: isRTL ? 'right' : 'left' }}>
                     {getText('اختر الفرع', 'Select Branch')}
                   </Text>
                   
-                  <View style={{ flexDirection: isRTL ? 'row-reverse' : 'row', gap: 12, flexWrap: 'wrap' }}>
+                  <View style={{ gap: 10 }}>
                     {branches && branches.length > 0 ? (
                       branches.map((branchObj: any) => {
                         const branchName = branchObj.branch_name || branchObj.name;
@@ -3082,34 +3132,47 @@ export default function CustomerScreen() {
                             key={branchObj.id || branchName}
                             onPress={() => setSelectedBranch(branchName)}
                             style={[{
-                              flex: branches.length <= 2 ? 1 : undefined,
-                              minWidth: '45%',
-                              flexDirection: isRTL ? 'row-reverse' : 'row',
+                              width: '100%',
+                              flexDirection: rtlRow,
                               alignItems: 'center',
-                              justifyContent: 'center',
-                              paddingVertical: 14,
-                              paddingHorizontal: 12,
+                              justifyContent: 'space-between',
+                              paddingVertical: 13,
+                              paddingHorizontal: 14,
                               borderRadius: 12,
                               borderWidth: 1.5,
-                              gap: 8,
+                              gap: 10,
                             }, isSelected
                               ? { borderColor: primaryColor, backgroundColor: '#EEF2FF' }
                               : { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}
                           >
                             <Ionicons
+                              name="storefront-outline"
+                              size={18}
+                              color={isSelected ? primaryColor : '#64748B'}
+                            />
+                            <Text
+                              style={{
+                                flex: 1,
+                                fontSize: 14,
+                                color: isSelected ? primaryColor : '#374151',
+                                fontWeight: isSelected ? '700' : '600',
+                                textAlign: isRTL ? 'right' : 'left',
+                              }}
+                              numberOfLines={1}
+                            >
+                              {branchName}
+                            </Text>
+                            <Ionicons
                               name={isSelected ? 'radio-button-on' : 'radio-button-off'}
                               size={20}
                               color={isSelected ? primaryColor : '#9CA3AF'}
                             />
-                            <Text style={{ fontSize: 14, color: isSelected ? primaryColor : '#374151', fontWeight: isSelected ? '600' : '400' }}>
-                              {branchName}
-                            </Text>
                           </TouchableOpacity>
                         );
                       })
                     ) : (
                       <View style={{ padding: 12, backgroundColor: '#F8FAFC', borderRadius: 8, width: '100%', alignItems: 'center' }}>
-                        <Text style={{ color: '#94A3B8', fontSize: 13 }}>
+                        <Text style={{ color: '#94A3B8', fontSize: 14 }}>
                           {getText('جاري تحميل الفروع...', 'Loading branches...')}
                         </Text>
                       </View>
@@ -6074,7 +6137,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   orderTypePillContainer: {
-    flex: 1.18,
+    flex: 1.05,
     backgroundColor: PILL_MINT,
     borderRadius: 999,
     padding: 4,
@@ -6098,7 +6161,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   orderTypeSegmentText: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: '700',
     color: TEXT_TEAL_DARK,
   },
@@ -6113,7 +6176,7 @@ const styles = StyleSheet.create({
     borderRadius: 1,
   },
   branchPillContainer: {
-    flex: 0.96,
+    flex: 1,
     backgroundColor: PILL_MINT,
     borderRadius: 999,
     paddingHorizontal: 13,
@@ -6124,7 +6187,7 @@ const styles = StyleSheet.create({
   },
   branchPillText: {
     flex: 1,
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: '800',
     color: TEXT_TEAL_DARK,
   },
