@@ -2073,8 +2073,8 @@ export default function CustomerScreen() {
     return rawBase;
   }, [promotions, selectedBranch, branches, deliveryMode]);
 
-  const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const totalPrice = cart.reduce((sum, item) => sum + (getCartItemUnitPrice(item) * item.quantity), 0);
+  const totalItems = cart.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
+  const totalPrice = cart.reduce((sum, item) => sum + (getCartItemUnitPrice(item) * (Number(item.quantity) || 1)), 0);
 
   const getText = (ar: string, en: string) => isRTL ? ar : en;
 
@@ -2303,39 +2303,26 @@ export default function CustomerScreen() {
   const renderBottomNavItem = (tabId: string, iconName: string, labelAr: string, labelEn: string) => {
     const isActive = activeTab === tabId;
 
-    if (isActive) {
-      return (
-        <TouchableOpacity
-          key={tabId}
-          style={[styles.bottomNavActivePill, { backgroundColor: primaryColor }]}
-          onPress={() => setActiveTab(tabId)}
-          activeOpacity={0.9}
-        >
-          <Ionicons
-            name={iconName as any}
-            size={21}
-            color="#FFFFFF"
-          />
-          <Text style={styles.bottomNavActiveText}>
-            {getText(labelAr, labelEn)}
-          </Text>
-        </TouchableOpacity>
-      );
-    }
-
     return (
       <TouchableOpacity
         key={tabId}
-        style={styles.bottomNavItem}
+        style={[
+          styles.bottomNavItem,
+          isActive && [styles.bottomNavActivePill, { backgroundColor: primaryColor }],
+        ]}
         onPress={() => setActiveTab(tabId)}
-        activeOpacity={0.75}
+        activeOpacity={0.85}
       >
         <Ionicons
           name={iconName as any}
-          size={21}
-          color={TEXT_TEAL_DARK}
+          size={19}
+          color={isActive ? '#FFFFFF' : TEXT_TEAL_DARK}
         />
-        <Text style={styles.bottomNavText}>
+        <Text
+          style={isActive ? styles.bottomNavActiveText : styles.bottomNavText}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
           {getText(labelAr, labelEn)}
         </Text>
       </TouchableOpacity>
@@ -3682,7 +3669,7 @@ export default function CustomerScreen() {
         <ScrollView
           style={styles.menuScrollRoot}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.menuScrollContent, { paddingBottom: 120 }]}
+          contentContainerStyle={[styles.menuScrollContent, { paddingBottom: 130 }]}
           keyboardShouldPersistTaps="handled"
         >
           {/* Decorative Organic Background Shapes (Material Expressive Mockup) */}
@@ -3770,20 +3757,6 @@ export default function CustomerScreen() {
             </View>
           )}
         </ScrollView>
-
-        {/* Floating Cart Button */}
-        {cart.length > 0 && (
-          <TouchableOpacity
-            style={[styles.floatingCartFab, { backgroundColor: primaryColor }]}
-            onPress={() => setIsCartModalVisible(true)}
-            activeOpacity={0.9}
-          >
-            <Ionicons name="cart-outline" size={27} color="#FFFFFF" />
-            <View style={styles.floatingCartFabBadge}>
-              <Text style={[styles.floatingCartFabBadgeText, { color: primaryColor }]}>{totalItems}</Text>
-            </View>
-          </TouchableOpacity>
-        )}
       </View>
     );
   };
@@ -3830,7 +3803,7 @@ export default function CustomerScreen() {
       <ScrollView
         style={styles.offersContent}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: 130 }}
       >
         {offersSection === 'offers' ? (
           <View style={styles.offersSection}>
@@ -3894,7 +3867,7 @@ export default function CustomerScreen() {
       <ScrollView
         style={styles.ordersContent}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: 130 }}
       >
         {ordersLoading ? (
           <ActivityIndicator size="large" color={primaryColor} style={{ marginTop: 40 }} />
@@ -4000,7 +3973,7 @@ export default function CustomerScreen() {
           {getText('المزيد', 'More')}
         </Text>
 
-        <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+        <ScrollView style={styles.settingsList} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
 
           {/* Tenant Identity Header (Drawer/Sidebar dynamic branding) */}
           <View style={{
@@ -4768,25 +4741,28 @@ export default function CustomerScreen() {
           }}
         >
           {slides.map((slide, idx) => {
-            const clipId = `organicBannerClip_${idx}`;
             const gradId = `oceanBannerGrad_${idx}`;
             return (
               <View
                 key={slide.id}
-                style={{ width: slideWidth, height: slideHeight, position: 'relative', borderRadius: 20, overflow: 'hidden' }}
+                style={{
+                  width: slideWidth,
+                  height: slideHeight,
+                  position: 'relative',
+                  borderRadius: 20,
+                  overflow: 'hidden',
+                  backgroundColor: primaryColor,
+                }}
               >
-                {/* Asymmetric Organic Wavy Top & Bottom SVG Silhouette + Multi-Layer Ocean Wave */}
+                {/* Ocean Wave Backdrop anchored bottom-left with preserved aspect ratio */}
                 <Svg
                   width={slideWidth}
                   height={slideHeight}
                   viewBox="0 0 380 184"
-                  preserveAspectRatio="xMidYMid slice"
+                  preserveAspectRatio="xMinYMax meet"
                   style={StyleSheet.absoluteFill}
                 >
                   <Defs>
-                    <ClipPath id={clipId}>
-                      <Path d="M 8,96 C 14,34 48,4 96,5 C 144,6 174,17 218,15 C 262,13 302,3 334,12 C 366,21 377,52 376,92 C 375,136 352,165 306,167 C 262,169 224,161 180,165 C 136,169 104,181 64,177 C 24,173 3,144 8,96 Z" />
-                    </ClipPath>
                     <LinearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
                       <Stop offset="0%" stopColor="#076B74" />
                       <Stop offset="55%" stopColor={primaryColor} />
@@ -4794,7 +4770,7 @@ export default function CustomerScreen() {
                     </LinearGradient>
                   </Defs>
 
-                  <G clipPath={`url(#${clipId})`}>
+                  <G>
                     {/* Deep Ocean Teal Background */}
                     <Path d="M 0,0 H 380 V 184 H 0 Z" fill={`url(#${gradId})`} />
 
@@ -5177,14 +5153,14 @@ export default function CustomerScreen() {
   return (
     <SafeAreaView
       style={styles.container}
-      edges={Platform.OS === 'android' ? ['left', 'right', 'bottom'] : undefined}
+      edges={['top', 'left', 'right', 'bottom']}
     >
       <StatusBar style="dark" />
 
       <View
         style={[
           styles.mobileAppShell,
-          { paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight || insets.top || 0) : 0 },
+          { paddingTop: Platform.OS === 'android' && insets.top === 0 ? (RNStatusBar.currentHeight || 0) : 0 },
           Platform.OS === 'web' && windowWidth > 540 && styles.mobileAppShellDesktop,
         ]}
       >
@@ -5196,7 +5172,27 @@ export default function CustomerScreen() {
           {activeTab === 'more' && renderMoreTab()}
         </View>
 
-        {/* Floating Bottom Navigation Bar (Material Expressive Pill Bar, No Top Border) */}
+        {/* Floating Cart FAB (Opens Cart Summary Modal First) */}
+        {cart.length > 0 && (
+          <TouchableOpacity
+            style={[
+              styles.floatingCartFab,
+              {
+                backgroundColor: primaryColor,
+                bottom: Math.max(90, insets.bottom + 80),
+              },
+            ]}
+            onPress={() => setIsCartModalVisible(true)}
+            activeOpacity={0.9}
+          >
+            <Ionicons name="cart-outline" size={26} color="#FFFFFF" />
+            <View style={styles.floatingCartFabBadge}>
+              <Text style={[styles.floatingCartFabBadgeText, { color: primaryColor }]}>{totalItems}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Floating Bottom Navigation Bar */}
         <View
           pointerEvents="box-none"
           style={[
@@ -5768,11 +5764,11 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: BG_WARM,
     position: 'relative',
-    overflow: 'hidden',
   },
   mobileAppShellDesktop: {
     maxWidth: 460,
     alignSelf: 'center',
+    overflow: 'hidden',
     shadowColor: '#053B3F',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.08,
@@ -5783,7 +5779,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   menuScrollContent: {
-    paddingBottom: 128,
+    paddingBottom: 130,
     position: 'relative',
   },
   bgDecorTopRight: {
@@ -5839,19 +5835,21 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   topLocationPill: {
+    width: '100%',
     backgroundColor: PILL_MINT,
     borderRadius: 999,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
-    minHeight: 60,
+    marginBottom: 12,
+    minHeight: 58,
   },
   topLocationRightGroup: {
     alignItems: 'center',
     gap: 10,
     flex: 1,
+    minWidth: 0,
   },
   topLocationPinWrap: {
     justifyContent: 'center',
@@ -5864,9 +5862,10 @@ const styles = StyleSheet.create({
     marginBottom: 1,
   },
   topLocationMainText: {
-    fontSize: 17.5,
+    fontSize: 16.5,
     color: TEXT_TEAL_DARK,
     fontWeight: '800',
+    flexShrink: 1,
   },
   organicBannerSection: {
     width: '100%',
@@ -5877,31 +5876,31 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     bottom: 0,
-    right: 20,
-    left: '26%',
+    right: 18,
+    left: '28%',
     justifyContent: 'center',
     gap: 6,
-    paddingBottom: 2,
+    paddingVertical: 8,
   },
   organicBannerHeadline: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '900',
     color: '#FFFFFF',
     textAlign: 'right',
     letterSpacing: 0.2,
   },
   organicBannerSubtitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '600',
     color: '#D4F2EE',
     textAlign: 'right',
-    marginTop: -4,
+    marginTop: -2,
   },
   organicBannerCtaPill: {
     backgroundColor: ACCENT_ORANGE,
     borderRadius: 999,
-    paddingHorizontal: 26,
-    paddingVertical: 9,
+    paddingHorizontal: 20,
+    paddingVertical: 7,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.16,
@@ -5910,7 +5909,7 @@ const styles = StyleSheet.create({
   },
   organicBannerCtaText: {
     color: '#FFFFFF',
-    fontSize: 15.5,
+    fontSize: 14,
     fontWeight: '800',
   },
   bannerPaginationRow: {
@@ -6465,19 +6464,19 @@ const styles = StyleSheet.create({
   },
   floatingCartFab: {
     position: 'absolute',
-    bottom: 96,
+    bottom: 90,
     left: 18,
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#053B3F',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.28,
     shadowRadius: 12,
-    elevation: 8,
-    zIndex: 15,
+    elevation: 5,
+    zIndex: 9999,
   },
   floatingCartFabBadge: {
     position: 'absolute',
@@ -6751,15 +6750,16 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: 14,
     backgroundColor: 'transparent',
-    zIndex: 20,
+    zIndex: 1000,
   },
   bottomNav: {
+    width: '100%',
     backgroundColor: NAV_MINT,
     borderRadius: 999,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 6,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     borderTopWidth: 0,
     shadowColor: '#053B3F',
     shadowOffset: { width: 0, height: 6 },
@@ -6769,27 +6769,25 @@ const styles = StyleSheet.create({
   },
   bottomNavActivePill: {
     borderRadius: 999,
-    paddingHorizontal: 24,
-    paddingVertical: 8,
-    minWidth: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 7,
   },
   bottomNavActiveText: {
-    fontSize: 13,
+    fontSize: 11.5,
     color: '#FFFFFF',
     fontWeight: '800',
   },
   bottomNavItem: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 6,
-    gap: 3,
+    paddingHorizontal: 4,
+    gap: 2,
   },
   bottomNavText: {
-    fontSize: 12.5,
+    fontSize: 11.5,
     color: TEXT_TEAL_DARK,
     fontWeight: '700',
   },
